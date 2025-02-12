@@ -112,11 +112,12 @@ backup_existing() {
     echo "Step 4: Processing existing installation..."
     if [ "$IS_UPDATE" = true ]; then
         echo "Creating backup..."
-        mkdir -p "$BACKUP_DIR"
+        mkdir -p "$BACKUP_DIR/scripts"
         
+        # Backup scripts but exclude config file
         if [ -d "$INSTALL_DIR" ]; then
-            cp -r "$INSTALL_DIR" "$BACKUP_DIR/"
-            echo "- Backed up scripts directory"
+            cp "$INSTALL_DIR/fan_control.sh" "$INSTALL_DIR/shutdown_fan_control.sh" "$BACKUP_DIR/scripts/" 2>/dev/null || true
+            echo "- Backed up script files"
         fi
         
         if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
@@ -143,10 +144,9 @@ install_files() {
     cp "$TEMP_DIR/dell_ipmi_fan_control.service" /etc/systemd/system/
     
     # Handle config file
-    if [ "$IS_UPDATE" = true ] && [ -f "$BACKUP_DIR/config.env" ]; then
-        echo "Restoring existing configuration..."
-        cp "$BACKUP_DIR/config.env" "$INSTALL_DIR/"
-        echo "- User configuration restored"
+    if [ "$IS_UPDATE" = true ]; then
+        echo "Preserving existing configuration..."
+        echo "- Config file will not be modified during update"
     else
         echo "Installing default configuration..."
         cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
