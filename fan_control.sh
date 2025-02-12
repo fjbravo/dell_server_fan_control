@@ -133,7 +133,7 @@ while true; do
       else
          # Log status every 5 cycles (using CONTROL as counter)
          if [ "$CONTROL" -eq 0 ]; then
-            echo "$DATE ✓ System stable - Temp: ${T}°C" >> $LOG_FILE
+            echo "$DATE ✓ System stable - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
          fi
       fi
    else
