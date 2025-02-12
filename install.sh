@@ -145,8 +145,50 @@ install_files() {
     
     # Handle config file
     if [ "$IS_UPDATE" = true ]; then
-        echo "Preserving existing configuration..."
-        echo "- Config file will not be modified during update"
+        echo "Processing configuration update..."
+        if [ -f "$INSTALL_DIR/config.env" ]; then
+            # Create temporary files
+            MERGED_CONFIG=$(mktemp)
+            
+            # Get list of variables from new config
+            echo "- Checking for new configuration options..."
+            grep -oP '^[A-Za-z_]+=.*$' "$TEMP_DIR/config.env" | cut -d'=' -f1 | while read -r VAR; do
+                # If variable exists in old config, use that value
+                if grep -q "^${VAR}=" "$INSTALL_DIR/config.env"; then
+                    echo "- Preserving existing setting: ${VAR}"
+                    grep "^${VAR}=" "$INSTALL_DIR/config.env" >> "$MERGED_CONFIG"
+                else
+                    echo "- Adding new setting: ${VAR}"
+                    grep "^${VAR}=" "$TEMP_DIR/config.env" >> "$MERGED_CONFIG"
+                fi
+            done
+            
+            # Backup old config
+            cp "$INSTALL_DIR/config.env" "$BACKUP_DIR/config.env.old"
+            echo "- Backed up old configuration to: $BACKUP_DIR/config.env.old"
+            
+            # Add comments and sections from new config
+            echo "- Updating configuration structure..."
+            awk '
+                BEGIN {first_var=1}
+                /^[A-Za-z_]+=/ {
+                    if (first_var) {
+                        system("cat \"" ENVIRON["MERGED_CONFIG"] "\"")
+                        first_var=0
+                    }
+                    next
+                }
+                {print}
+            ' "$TEMP_DIR/config.env" > "$INSTALL_DIR/config.env"
+            
+            # Cleanup
+            rm "$MERGED_CONFIG"
+            echo "✓ Configuration updated successfully"
+            echo "- Review $INSTALL_DIR/config.env for any new options"
+        else
+            echo "! No existing config found, installing default configuration..."
+            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
+        fi
     else
         echo "Installing default configuration..."
         cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
