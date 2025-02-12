@@ -18,7 +18,7 @@ Installation:
 To install the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/add-installation-script/install.sh)"
 ```
 
 Note: Ensure IPMI is enabled in your iDRAC settings before installation.
