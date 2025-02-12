@@ -6,7 +6,37 @@ set -e
 INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
+TEMP_DIR="/tmp/dell-fan-control-install"
+REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main"
 IS_UPDATE=false
+
+# Function to download required files
+download_files() {
+    echo "Downloading application files..."
+    mkdir -p "$TEMP_DIR"
+    cd "$TEMP_DIR"
+    
+    # Download required files
+    for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service; do
+        if ! curl -sS -f -O "$REPO_URL/$file"; then
+            echo "Error: Failed to download $file"
+            cd - > /dev/null
+            rm -rf "$TEMP_DIR"
+            exit 1
+        fi
+    done
+    
+    # Make scripts executable
+    chmod +x fan_control.sh shutdown_fan_control.sh
+    cd - > /dev/null
+}
+
+# Function to cleanup temporary files
+cleanup() {
+    if [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
 
 echo "Dell Server Fan Control Installation Script"
 echo "----------------------------------------"
@@ -90,14 +120,13 @@ apt-get install -y lm-sensors ipmitool
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
 
+# Download application files
+download_files
+
 # Install scripts
 echo "Installing scripts..."
-cp fan_control.sh "$INSTALL_DIR/"
-cp shutdown_fan_control.sh "$INSTALL_DIR/"
-
-# Make scripts executable
-chmod +x "$INSTALL_DIR/fan_control.sh"
-chmod +x "$INSTALL_DIR/shutdown_fan_control.sh"
+cp "$TEMP_DIR/fan_control.sh" "$INSTALL_DIR/"
+cp "$TEMP_DIR/shutdown_fan_control.sh" "$INSTALL_DIR/"
 
 # Restore settings if updating
 if [ "$IS_UPDATE" = true ]; then
@@ -106,7 +135,7 @@ fi
 
 # Install service file
 echo "Installing systemd service..."
-cp dell_ipmi_fan_control.service /etc/systemd/system/
+cp "$TEMP_DIR/dell_ipmi_fan_control.service" /etc/systemd/system/
 
 # Reload systemd
 systemctl daemon-reload
@@ -137,3 +166,6 @@ if [ "$IS_UPDATE" = true ]; then
     echo "If you experience any issues with this update, you can restore"
     echo "the backup from $BACKUP_DIR"
 fi
+
+# Clean up temporary files
+cleanup

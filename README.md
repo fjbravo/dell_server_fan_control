@@ -15,21 +15,13 @@ If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15
 
 Installation:
 
-You can install this application using one of these methods:
+To install the application, run:
 
-1. Using curl (recommended):
 ```bash
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
 ```
 
-2. Manual installation:
-   - First, ensure IPMI is enabled in iDRAC settings
-   - Clone this repository:
-     ```bash
-     git clone https://github.com/fjbravo/dell_server_fan_control.git
-     cd dell_server_fan_control
-     sudo bash install.sh
-     ```
+Note: Ensure IPMI is enabled in your iDRAC settings before installation.
 
 The installation script will:
 - Install required dependencies (lm-sensors and ipmitool)
