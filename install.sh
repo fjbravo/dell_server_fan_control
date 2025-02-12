@@ -125,21 +125,6 @@ backup_existing() {
         fi
         
         echo "Backup created at: $BACKUP_DIR"
-        
-        # Preserve user settings
-        if [ -f "$INSTALL_DIR/fan_control.sh" ]; then
-            echo "Preserving existing user settings..."
-            TEMP_SETTINGS=$(mktemp)
-            grep -E '^[[:space:]]*(MIN_TEMP|MAX_TEMP|FAN_MIN|HYST_TEMP|HYST_LEVEL|CHECK_INTERVAL|DEBUG)=' "$INSTALL_DIR/fan_control.sh" > "$TEMP_SETTINGS" || true
-            
-            if [ -s "$TEMP_SETTINGS" ]; then
-                echo "- Found user settings, will restore after update"
-            else
-                echo "- No custom settings found"
-                rm "$TEMP_SETTINGS"
-                TEMP_SETTINGS=""
-            fi
-        fi
     else
         echo "Fresh installation, no backup needed"
     fi
@@ -214,16 +199,31 @@ if [ "$IS_UPDATE" = true ]; then
 else
     echo "Installation completed successfully!"
 fi
+
 echo
-echo "To check service status: systemctl status ${SERVICE_NAME}"
-echo "To view logs: journalctl -u ${SERVICE_NAME}"
-echo "Configuration files are located in: $INSTALL_DIR"
+echo "Monitoring and Management Commands:"
+echo "--------------------------------"
+echo "1. Monitor fan control logs in real-time:"
+echo "   sudo tail -f /var/log/fan_control.log"
 echo
-echo "Note: You can modify the temperature and fan settings by editing"
-echo "      $INSTALL_DIR/fan_control.sh"
+echo "2. View service logs:"
+echo "   sudo journalctl -fu ${SERVICE_NAME}    # Follow logs in real-time"
+echo "   sudo journalctl -u ${SERVICE_NAME}     # Show all logs"
+echo
+echo "3. Check service status:"
+echo "   sudo systemctl status ${SERVICE_NAME}"
+echo
+echo "4. Configuration:"
+echo "   - Files located in: $INSTALL_DIR"
+echo "   - Edit settings: sudo nano $INSTALL_DIR/config.env"
+echo
+echo "5. Service control:"
+echo "   sudo systemctl stop ${SERVICE_NAME}     # Stop the service"
+echo "   sudo systemctl start ${SERVICE_NAME}    # Start the service"
+echo "   sudo systemctl restart ${SERVICE_NAME}  # Restart the service"
 
 if [ "$IS_UPDATE" = true ]; then
     echo
-    echo "If you experience any issues with this update, you can restore"
-    echo "the backup from $BACKUP_DIR"
+    echo "Note: If you experience any issues with this update, you can restore"
+    echo "      the backup from $BACKUP_DIR"
 fi
