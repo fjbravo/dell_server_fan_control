@@ -3,6 +3,9 @@
 # Exit on error
 set -e
 
+# Enable error trace
+set -x
+
 INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
@@ -10,25 +13,38 @@ TEMP_DIR="/tmp/dell-fan-control-install"
 REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/add-installation-script"
 IS_UPDATE=false
 
+# Set up cleanup trap
+trap cleanup EXIT
+
 # Function to download required files
 download_files() {
     echo "Downloading application files..."
     mkdir -p "$TEMP_DIR"
-    cd "$TEMP_DIR"
+    cd "$TEMP_DIR" || exit 1
     
     # Download required files
     for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service; do
-        if ! curl -sS -f -O "$REPO_URL/$file"; then
-            echo "Error: Failed to download $file"
-            cd - > /dev/null
+        echo "Downloading $file..."
+        if ! curl -L -o "$file" "$REPO_URL/$file"; then
+            echo "Error: Failed to download $file from $REPO_URL/$file"
+            cd - > /dev/null || true
             rm -rf "$TEMP_DIR"
             exit 1
         fi
+        
+        # Verify file was downloaded and has content
+        if [ ! -s "$file" ]; then
+            echo "Error: Downloaded file $file is empty"
+            cd - > /dev/null || true
+            rm -rf "$TEMP_DIR"
+            exit 1
+        fi
+        echo "Successfully downloaded $file"
     done
     
     # Make scripts executable
     chmod +x fan_control.sh shutdown_fan_control.sh
-    cd - > /dev/null
+    cd - > /dev/null || exit 1
 }
 
 # Function to cleanup temporary files
