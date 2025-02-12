@@ -78,9 +78,22 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
 # Initialize control counter
 CONTROL=0
 
+# Function to reload configuration
+reload_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+        echo "$DATE ⚙ Configuration reloaded" >> $LOG_FILE
+    fi
+}
+
 # Beginning of monitoring and control loop
 while true; do
    DATE=$(date +%H:%M:%S)
+   
+   # Reload config every 60 seconds (when CONTROL is 0)
+   if [ "$CONTROL" -eq 0 ]; then
+       reload_config
+   fi
    
    # Get highest CPU package temperature from all CPU sensors
    T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
@@ -131,8 +144,8 @@ while true; do
          /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
          echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
       else
-         # Log status every 5 cycles (using CONTROL as counter)
-         if [ "$CONTROL" -eq 0 ]; then
+         # Log based on LOG_FREQUENCY or if DEBUG is enabled
+         if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
             echo "$DATE ✓ System stable - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
          fi
       fi
