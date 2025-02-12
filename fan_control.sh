@@ -18,8 +18,11 @@
 #
 
 
-# Source configuration file
-CONFIG_FILE="/usr/local/bin/dell-fan-control/config.sh"
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Source configuration file (looking in the same directory as the script)
+CONFIG_FILE="$SCRIPT_DIR/config.env"
 
 # Check if config file exists and source it
 if [ -f "$CONFIG_FILE" ]; then
