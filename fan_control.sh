@@ -81,85 +81,64 @@ CONTROL=0
 # Beginning of monitoring and control loop
 while true; do
    DATE=$(date +%H:%M:%S)
-   echo "$DATE --> Starting monitoring cycle..." >> $LOG_FILE
    
-   # Step 1: Get highest CPU package temperature from all CPU sensors
-   echo "$DATE [Step 1] Reading CPU temperatures from sensors..." >> $LOG_FILE
+   # Get highest CPU package temperature from all CPU sensors
    T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
    
-   # Step 2: Validate temperature reading (must be between 1-99°C)
-   echo "$DATE [Step 2] Validating temperature reading..." >> $LOG_FILE
+   # Validate temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
-      echo "$DATE [Step 2] ✓ Valid temperature reading: ${T}°C" >> $LOG_FILE
-      
-      # Step 3: Check for critical temperature threshold
-      echo "$DATE [Step 3] Checking against critical threshold (${TEMP_FAIL_THRESHOLD}°C)..." >> $LOG_FILE
+      # Check for critical temperature threshold
       if [ "$T" -ge $TEMP_FAIL_THRESHOLD ]; then
          # Emergency shutdown if temperature exceeds safe threshold
-         echo "$DATE [Step 3] ⚠ CRITICAL!!!! Temperature ${T}°C exceeds shutdown threshold of ${TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
-         echo "$DATE [Step 3] ⚠ INITIATING EMERGENCY SHUTDOWN" >> $LOG_FILE
+         echo "$DATE ⚠ CRITICAL!!!! Temperature ${T}°C exceeds shutdown threshold of ${TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
+         echo "$DATE ⚠ INITIATING EMERGENCY SHUTDOWN" >> $LOG_FILE
          /usr/sbin/shutdown now
          exit 0
       fi
-      echo "$DATE [Step 3] ✓ Temperature below critical threshold" >> $LOG_FILE
       
-      # Step 4: Check if temperature change exceeds hysteresis thresholds
-      echo "$DATE [Step 4] Checking temperature change (Current: ${T}°C, Previous: ${T_OLD}°C)..." >> $LOG_FILE
+      # Check if temperature change exceeds hysteresis thresholds
       # Only adjust fans if temp has changed significantly to prevent constant adjustments
       if [ $((T_OLD-T)) -ge $HYST_COOLING ]  || [ $((T-T_OLD)) -ge $HYST_WARMING ]; then
-         echo "$DATE [Step 4] ⚡ Significant temperature change detected" >> $LOG_FILE
+         echo "$DATE ⚡ Temperature change detected (${T}°C)" >> $LOG_FILE
          # Update last temperature for future comparisons
          T_OLD=$T
          
-         # Step 5: Calculate required fan speed
-         echo "$DATE [Step 5] Calculating required fan speed..." >> $LOG_FILE
-         # Convert current temperature to a percentage between MIN_TEMP and MAX_TEMP
+         # Calculate required fan speed
          FAN_CUR="$(( T - MIN_TEMP ))"
          FAN_MAX="$(( MAX_TEMP - MIN_TEMP ))"
          FAN_PERCENT=`echo "$FAN_MAX" "$FAN_CUR" | awk '{printf "%d\n", ($2/$1)*100}'`
-         echo "$DATE [Step 5] ✓ Initial fan speed calculation: ${FAN_PERCENT}%" >> $LOG_FILE
          
-         # Step 6: Apply fan speed limits
-         echo "$DATE [Step 6] Applying fan speed limits..." >> $LOG_FILE
-         # Ensure minimum fan speed
+         # Apply fan speed limits
          if [ "$FAN_PERCENT" -lt "$FAN_MIN" ]; then
-            echo "$DATE [Step 6] ↑ Applying minimum fan speed limit: ${FAN_MIN}%" >> $LOG_FILE
+            echo "$DATE ↑ Setting minimum fan speed: ${FAN_MIN}%" >> $LOG_FILE
             FAN_PERCENT="$FAN_MIN"
-         fi
-         # Cap maximum fan speed
-         if [ "$FAN_PERCENT" -gt 100 ]; then
-            echo "$DATE [Step 6] ↓ Capping at maximum fan speed: 100%" >> $LOG_FILE
+         elif [ "$FAN_PERCENT" -gt 100 ]; then
+            echo "$DATE ↓ Capping at maximum fan speed: 100%" >> $LOG_FILE
             FAN_PERCENT="100"
          fi
-         echo "$DATE [Step 6] ✓ Final fan speed after limits: ${FAN_PERCENT}%" >> $LOG_FILE
          
-         # Step 7: Periodic manual control check
-         echo "$DATE [Step 7] Control verification check (cycle ${CONTROL}/10)..." >> $LOG_FILE
-         # Every 10 cycles, ensure we still have manual fan control
+         # Periodic manual control check (every 10 cycles)
          if [ "$CONTROL" -eq 10 ]; then
             CONTROL=0
-            echo "$DATE [Step 7] ⚡ Verifying manual fan control is active" >> $LOG_FILE
             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
-            echo "$DATE [Step 7] ✓ Manual control verified" >> $LOG_FILE
+            echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
          else
             CONTROL=$(( CONTROL + 1 ))
-            echo "$DATE [Step 7] ✓ Control check not needed this cycle" >> $LOG_FILE
          fi
          
-         # Step 8: Apply fan speed
-         echo "$DATE [Step 8] Applying new fan speed settings..." >> $LOG_FILE
-         # Convert percentage to hexadecimal for IPMI
+         # Apply fan speed
          HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
-         # Send fan speed command to iDRAC
          /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
-         echo "$DATE [Step 8] ✓ Fan speed updated - Temperature: ${T}°C, Fan Speed: ${FAN_PERCENT}%" >> $LOG_FILE
+         echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
       else
-         echo "$DATE [Step 4] ✓ No significant temperature change, maintaining current fan speed" >> $LOG_FILE
+         # Log status every 5 cycles (using CONTROL as counter)
+         if [ "$CONTROL" -eq 0 ]; then
+            echo "$DATE ✓ System stable - Temp: ${T}°C" >> $LOG_FILE
+         fi
       fi
    else
       # Error handling: Invalid temperature reading
-      echo "$DATE [Error] ⚠ Invalid temperature reading: ${T}°C" >> $LOG_FILE
-      echo "$DATE [Error] ⚠ Reverting to stock Dell fan control for safety" >> $LOG_FILE
+      echo "$DATE ⚠ Error: Invalid temperature reading (${T}°C). Reverting to stock Dell fan control" >> $LOG_FILE
       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
       exit 0
    fi
