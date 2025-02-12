@@ -71,7 +71,7 @@ download_files() {
     cd "$TEMP_DIR" || exit 1
     
     # Download required files
-    for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service; do
+    for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service config.sh; do
         echo "- Downloading $file..."
         if ! curl -L -o "$file" "$REPO_URL/$file"; then
             echo "Error: Failed to download $file from $REPO_URL/$file"
@@ -157,16 +157,16 @@ install_files() {
     cp "$TEMP_DIR/shutdown_fan_control.sh" "$INSTALL_DIR/"
     cp "$TEMP_DIR/dell_ipmi_fan_control.service" /etc/systemd/system/
     
-    # Restore user settings if updating
-    if [ -n "$TEMP_SETTINGS" ] && [ -f "$TEMP_SETTINGS" ]; then
-        echo "Restoring user settings..."
-        while IFS= read -r setting; do
-            variable=$(echo "$setting" | cut -d'=' -f1 | tr -d '[:space:]')
-            value=$(echo "$setting" | cut -d'=' -f2)
-            sed -i "s/^[[:space:]]*$variable=.*/$variable=$value/" "$INSTALL_DIR/fan_control.sh"
-        done < "$TEMP_SETTINGS"
-        rm "$TEMP_SETTINGS"
-        echo "- User settings restored"
+    # Handle config file
+    if [ "$IS_UPDATE" = true ] && [ -f "$BACKUP_DIR/config.sh" ]; then
+        echo "Restoring existing configuration..."
+        cp "$BACKUP_DIR/config.sh" "$INSTALL_DIR/"
+        echo "- User configuration restored"
+    else
+        echo "Installing default configuration..."
+        cp "$TEMP_DIR/config.sh" "$INSTALL_DIR/"
+        echo "- Default configuration installed"
+        echo "- Please edit $INSTALL_DIR/config.sh to set your iDRAC credentials and preferences"
     fi
     
     echo "Files installed successfully"
