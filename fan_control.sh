@@ -78,58 +78,75 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
 # Initialize control counter
 CONTROL=0
 
-# Beginning of loop to check and set temps. Adjust time
+# Beginning of monitoring and control loop
 while true; do
-   # Get highest package temp from sensors.
+   # Step 1: Get highest CPU package temperature from all CPU sensors
+   echo "Checking CPU temperatures..." >> $LOG_FILE
    T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
-   # Ensure Temps are still valid values.
+   
+   # Step 2: Validate temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
-      # Make sure the CPU isn't over TEMP_FAIL_THRESHOLD.
+      echo "Valid temperature reading: ${T}°C" >> $LOG_FILE
+      
+      # Step 3: Check for critical temperature threshold
       if [ "$T" -ge $TEMP_FAIL_THRESHOLD ]; then
-         # Shutdown system if temps are too high
+         # Emergency shutdown if temperature exceeds safe threshold
          echo "CRITICAL!!!! TEMP_FAIL_THRESHOLD met. Shutting system down immediately.">> $LOG_FILE
          /usr/sbin/shutdown now
          exit 0
-         fi
-      # Check and see if temps have varied enough to merit changing fan speed.
+      fi
+      
+      # Step 4: Check if temperature change exceeds hysteresis thresholds
+      # Only adjust fans if temp has changed significantly to prevent constant adjustments
       if [ $((T_OLD-T)) -ge $HYST_COOLING ]  || [ $((T-T_OLD)) -ge $HYST_WARMING ]; then
-         # Set hysteresis variable
+         echo "Temperature change detected, adjusting fans..." >> $LOG_FILE
+         # Update last temperature for future comparisons
          T_OLD=$T
-         # Calculate the percentage between MAX_TEMP and MIN_TEMP the cpu is currently at and set speed accordingly.
+         
+         # Step 5: Calculate required fan speed
+         # Convert current temperature to a percentage between MIN_TEMP and MAX_TEMP
          FAN_CUR="$(( T - MIN_TEMP ))"
          FAN_MAX="$(( MAX_TEMP - MIN_TEMP ))"
          FAN_PERCENT=`echo "$FAN_MAX" "$FAN_CUR" | awk '{printf "%d\n", ($2/$1)*100}'`
-         # Ensure fans are at or above FAN_MIN
+         
+         # Step 6: Apply fan speed limits
+         # Ensure minimum fan speed
          if [ "$FAN_PERCENT" -lt "$FAN_MIN" ]; then
+            echo "Applying minimum fan speed limit" >> $LOG_FILE
             FAN_PERCENT="$FAN_MIN"
-            fi
-         # Cap Fans at 100%
+         fi
+         # Cap maximum fan speed
          if [ "$FAN_PERCENT" -gt 100 ]; then
+            echo "Capping at maximum fan speed" >> $LOG_FILE
             FAN_PERCENT="100"
-            fi
-         # Make sure we still have manual control every 10 speed updates
+         fi
+         
+         # Step 7: Periodic manual control check
+         # Every 10 cycles, ensure we still have manual fan control
          if [ "$CONTROL" -eq 10 ]; then
             CONTROL=0
             DATE=$(date +%H:%M:%S)
-            echo "$DATE--> Ensuring manual fan control"  >> $LOG_FILE
+            echo "$DATE--> Verifying manual fan control is active"  >> $LOG_FILE
             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
-            else
+         else
             CONTROL=$(( CONTROL + 1 ))
-            fi
-         # Convert to HEX for ipmi
-         HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
-         # Log current time, temp, and fan speed.
-         DATE=$(date +%H:%M:%S)
-         echo "$DATE - Temp: $T --> Fan: $FAN_PERCENT%">> $LOG_FILE
-         # Set fan speed via ipmitool
-         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
          fi
-      #if temps are invalid, go back do Dell Control and exit app
-      else
-      echo "$DATE--> Somethings not right. No valid data from sensors. Enabling stock Dell fan control">> $LOG_FILE
+         
+         # Step 8: Apply fan speed
+         # Convert percentage to hexadecimal for IPMI
+         HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
+         # Log current status
+         DATE=$(date +%H:%M:%S)
+         echo "$DATE - Temp: $T°C --> Fan: $FAN_PERCENT%">> $LOG_FILE
+         # Send fan speed command to iDRAC
+         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
+      fi
+   else
+      # Error handling: Invalid temperature reading
+      echo "$DATE--> Error: Invalid temperature reading. Reverting to stock Dell fan control">> $LOG_FILE
       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
       exit 0
-      fi
+   fi
    #end loop, and sleep for how ever many seconds LOOP_TIME is set to above.
    sleep $LOOP_TIME;
    done
