@@ -87,6 +87,9 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    exit 0
    fi
 
+# Initialize control counter
+CONTROL=0
+
 # Beginning of loop to check and set temps. Adjust time
 while true; do
    # Get highest package temp from sensors.
@@ -117,7 +120,7 @@ while true; do
             FAN_PERCENT="100"
             fi
          # Make sure we still have manual control every 10 speed updates
-         if [ $CONTROL == 10 ]; then
+         if [ "$CONTROL" -eq 10 ]; then
             CONTROL=0
             DATE=$(date +%H:%M:%S)
             echo "$DATE--> Ensuring manual fan control"  >> $LOG_FILE
