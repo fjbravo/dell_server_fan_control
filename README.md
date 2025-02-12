@@ -15,17 +15,34 @@ If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15
 
 Installation:
 
-Ensure IPMI is enabled in iDRAC settings.
+You can install this application using one of these methods:
 
-run " apt update; apt install lm-sensors ipmitool "
+1. Using curl (recommended):
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+```
 
-Copy fan control scripts to /root/ and make executable (chmod +x) If you change the location, the paths must be edited in dell_ipmi_fan_control.service
+2. Manual installation:
+   - First, ensure IPMI is enabled in iDRAC settings
+   - Clone this repository:
+     ```bash
+     git clone https://github.com/fjbravo/dell_server_fan_control.git
+     cd dell_server_fan_control
+     sudo bash install.sh
+     ```
 
-Edit variables in both .sh files.
+The installation script will:
+- Install required dependencies (lm-sensors and ipmitool)
+- Install the scripts to /usr/local/bin/dell-fan-control/
+- Create and enable a systemd service
+- Start the fan control service with default settings
 
-Copy dell_ipmi_fan_control.service file to /etc/systemd/system/
+After installation:
+- Check service status: `systemctl status dell_ipmi_fan_control`
+- View logs: `journalctl -u dell_ipmi_fan_control`
+- Configure settings: Edit `/usr/local/bin/dell-fan-control/fan_control.sh`
 
-run " systemctl enable dell_ipmi_fan_control.service "
-run " systemctl start dell_ipmi_fan_control.service "
-
-if you make changes to the scripts or service file, run " systemctl daemon-reload ", then systemctl restart dell_ipmi_fan_control.service "
+If you make changes to the settings, restart the service:
+```bash
+sudo systemctl restart dell_ipmi_fan_control
+```
