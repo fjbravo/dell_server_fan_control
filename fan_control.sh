@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Enable error tracing
+set -x
+
 # A simple bash script that uses lm_sensors to check CPU temps, and ipmitool to adjust fan speeds on iDRAC based systems.
 #
 # Copyright (C) 2022  Milkysunshine
@@ -43,7 +46,16 @@ DATE=$(date +%d-%m-%Y\ %H:%M:%S)
 
 # Create logs directory if it doesn't exist
 LOG_DIR=$(dirname "$LOG_FILE")
-mkdir -p "$LOG_DIR"
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+    echo "Error: Failed to create log directory: $LOG_DIR" >&2
+    exit 1
+fi
+
+# Ensure log directory is writable
+if ! [ -w "$LOG_DIR" ]; then
+    echo "Error: Log directory is not writable: $LOG_DIR" >&2
+    exit 1
+fi
 
 # Create new log file with timestamp
 LOG_FILE_BASE=$(basename "$LOG_FILE")
@@ -76,21 +88,56 @@ echo "Date $DATE --- Current log file: $LOG_FILE">> $LOG_FILE
 echo "Date $DATE --- Latest log symlink: $LATEST_LOG">> $LOG_FILE
 # Function to check IPMI connectivity
 check_ipmi() {
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x00 2>/dev/null; then
-        echo "$DATE ⚠ Error: Cannot connect to IPMI. Check iDRAC settings." >> $LOG_FILE
+    # Check if ipmitool exists
+    if ! command -v ipmitool >/dev/null 2>&1; then
+        echo "Error: 'ipmitool' command not found. Please install ipmitool package." >&2
         return 1
     fi
+
+    # Check if we can connect to iDRAC
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x00 2>/dev/null; then
+        echo "Error: Cannot connect to IPMI. Check iDRAC settings:" >&2
+        echo "  - IP: $IDRAC_IP" >&2
+        echo "  - User: $IDRAC_USER" >&2
+        echo "  - Password: [hidden]" >&2
+        echo "  - Ensure IPMI over LAN is enabled in iDRAC" >&2
+        return 1
+    fi
+
+    # Check if we have permission to control fans
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 2>/dev/null; then
+        echo "Error: Cannot control fans. Check iDRAC user permissions." >&2
+        return 1
+    fi
+
     return 0
 }
 
 # Function to get CPU temperature
 get_cpu_temp() {
-    local temp
-    temp=$(sensors coretemp-isa-0000 coretemp-isa-0001 2>/dev/null | grep Package | cut -c17-18 | sort -n | tail -1)
-    if [ $? -ne 0 ] || [ -z "$temp" ]; then
-        echo "$DATE ⚠ Error: Cannot read CPU temperature sensors." >> $LOG_FILE
+    # Check if sensors command exists
+    if ! command -v sensors >/dev/null 2>&1; then
+        echo "Error: 'sensors' command not found. Please install lm-sensors package." >&2
         return 1
     fi
+
+    # Check if sensors are detected
+    if ! sensors >/dev/null 2>&1; then
+        echo "Error: No sensors detected. Please run 'sensors-detect' as root." >&2
+        return 1
+    fi
+
+    local temp
+    temp=$(sensors coretemp-isa-0000 coretemp-isa-0001 2>/dev/null | grep Package | cut -c17-18 | sort -n | tail -1)
+    
+    # Check if we got a valid temperature reading
+    if [ -z "$temp" ]; then
+        echo "Error: Could not read CPU temperature. Check if coretemp module is loaded." >&2
+        echo "Available sensors:" >&2
+        sensors -A >&2
+        return 1
+    fi
+    
     echo "$temp"
     return 0
 }
