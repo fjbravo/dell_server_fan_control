@@ -148,7 +148,10 @@ install_files() {
         echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
             echo "- Preserving existing configuration"
-            echo "- New default config template available at: $TEMP_DIR/config.env"
+            # Save new config as template
+            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
+            echo "- New default config template saved as: $INSTALL_DIR/config.template.env"
+            echo "  Compare with your existing config and update manually if needed"
         else
             echo "! No existing config found, installing default configuration..."
             cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
@@ -156,6 +159,8 @@ install_files() {
     else
         echo "Installing default configuration..."
         cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
+        # Also save as template for future reference
+        cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
         echo "- Default configuration installed"
         echo "- Please edit $INSTALL_DIR/config.env to set your iDRAC credentials and preferences"
     fi
@@ -222,6 +227,7 @@ echo
 echo "4. Configuration:"
 echo "   - Files located in: $INSTALL_DIR"
 echo "   - Edit settings: sudo nano $INSTALL_DIR/config.env"
+echo "   - Default template: $INSTALL_DIR/config.template.env"
 echo
 echo "5. Service control:"
 echo "   sudo systemctl stop ${SERVICE_NAME}     # Stop the service"
@@ -233,7 +239,7 @@ if [ "$IS_UPDATE" = true ]; then
     echo "Note: If you experience any issues with this update, you can restore"
     echo "      the backup from $BACKUP_DIR"
     echo
-    echo "      A new default configuration template is available at:"
-    echo "      $TEMP_DIR/config.env"
-    echo "      You can review it for any new configuration options."
+    echo "      A new default configuration template has been saved as:"
+    echo "      $INSTALL_DIR/config.template.env"
+    echo "      Compare it with your existing config.env and update manually if needed."
 fi
