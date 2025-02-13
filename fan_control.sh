@@ -127,13 +127,6 @@ while true; do
    if [ "$CONTROL" -eq 0 ]; then
        reload_config
    fi
-   
-   # Check IPMI connectivity periodically
-   if [ "$CONTROL" -eq 0 ] && ! check_ipmi; then
-       echo "$DATE ⚠ Error: Lost IPMI connection. Enabling stock Dell fan control." >> $LOG_FILE
-       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
-       exit 1
-   fi
 
    # Get highest CPU package temperature from all CPU sensors
    T=$(get_cpu_temp)
