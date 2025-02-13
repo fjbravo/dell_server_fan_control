@@ -18,31 +18,19 @@
 #
 
 
-#-----USER DEFINED VARIABLES-----
-# iDRAC
-IDRAC_IP="192.168.0.20"
-IDRAC_USER="root"
-IDRAC_PASSWORD="calvin"
-# Thermal
-# FAN_MIN sets the minimum PWM speed percentage for the fans.
-FAN_MIN="12"
-# Set the MIN_TEMP to where the fan speed curve will start at 0. If FAN_MIN is set above, fan speeds will be the higher value of FAN_MIN and calculated curve percentage.
-MIN_TEMP="40"
-# MAX_TEMP is where fans will reach 100% PWM.
-MAX_TEMP="80"
-# If TEMP_FAIL_THRESHOLD temperature is reached, execute system shutdown
-TEMP_FAIL_THRESHOLD="83"
-# Set HYST_COOLING and HYST_WARMING to how many degrees change you want before adjusting fan speed. Larger numbers will decrease minor fan changes.
-HYST_WARMING="3"
-HYST_COOLING="4"
-# Misc
-# How many seconds between cpu temp checks and fan changes.
-LOOP_TIME="10"
-# Set LOG_FILE location.
-LOG_FILE=/var/log/fan_control.log
-# Clear log on script start. Set to CLEAR_LOG="y" to enable
-CLEAR_LOG="y"
-#-----END USER DEFINED VARIABLES-----
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Source configuration file (looking in the same directory as the script)
+CONFIG_FILE="$SCRIPT_DIR/config.env"
+
+# Check if config file exists and source it
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "Error: Configuration file not found at $CONFIG_FILE"
+    exit 1
+fi
 
 
 
@@ -87,58 +75,86 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    exit 0
    fi
 
-# Beginning of loop to check and set temps. Adjust time
+# Initialize control counter
+CONTROL=0
+
+# Function to reload configuration
+reload_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+        echo "$DATE ⚙ Configuration reloaded" >> $LOG_FILE
+    fi
+}
+
+# Beginning of monitoring and control loop
 while true; do
-   # Get highest package temp from sensors.
+   DATE=$(date +%H:%M:%S)
+   
+   # Reload config every 60 seconds (when CONTROL is 0)
+   if [ "$CONTROL" -eq 0 ]; then
+       reload_config
+   fi
+   
+   # Get highest CPU package temperature from all CPU sensors
    T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
-   # Ensure Temps are still valid values.
+   
+   # Validate temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
-      # Make sure the CPU isn't over TEMP_FAIL_THRESHOLD.
+      # Check for critical temperature threshold
       if [ "$T" -ge $TEMP_FAIL_THRESHOLD ]; then
-         # Shutdown system if temps are too high
-         echo "CRITICAL!!!! TEMP_FAIL_THRESHOLD met. Shutting system down immediately.">> $LOG_FILE
+         # Emergency shutdown if temperature exceeds safe threshold
+         echo "$DATE ⚠ CRITICAL!!!! Temperature ${T}°C exceeds shutdown threshold of ${TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
+         echo "$DATE ⚠ INITIATING EMERGENCY SHUTDOWN" >> $LOG_FILE
          /usr/sbin/shutdown now
          exit 0
-         fi
-      # Check and see if temps have varied enough to merit changing fan speed.
+      fi
+      
+      # Check if temperature change exceeds hysteresis thresholds
+      # Only adjust fans if temp has changed significantly to prevent constant adjustments
       if [ $((T_OLD-T)) -ge $HYST_COOLING ]  || [ $((T-T_OLD)) -ge $HYST_WARMING ]; then
-         # Set hysteresis variable
+         echo "$DATE ⚡ Temperature change detected (${T}°C)" >> $LOG_FILE
+         # Update last temperature for future comparisons
          T_OLD=$T
-         # Calculate the percentage between MAX_TEMP and MIN_TEMP the cpu is currently at and set speed accordingly.
+         
+         # Calculate required fan speed
          FAN_CUR="$(( T - MIN_TEMP ))"
          FAN_MAX="$(( MAX_TEMP - MIN_TEMP ))"
          FAN_PERCENT=`echo "$FAN_MAX" "$FAN_CUR" | awk '{printf "%d\n", ($2/$1)*100}'`
-         # Ensure fans are at or above FAN_MIN
+         
+         # Apply fan speed limits
          if [ "$FAN_PERCENT" -lt "$FAN_MIN" ]; then
+            echo "$DATE ↑ Setting minimum fan speed: ${FAN_MIN}%" >> $LOG_FILE
             FAN_PERCENT="$FAN_MIN"
-            fi
-         # Cap Fans at 100%
-         if [ "$FAN_PERCENT" -gt 100 ]; then
+         elif [ "$FAN_PERCENT" -gt 100 ]; then
+            echo "$DATE ↓ Capping at maximum fan speed: 100%" >> $LOG_FILE
             FAN_PERCENT="100"
-            fi
-         # Make sure we still have manual control every 10 speed updates
-         if [ $CONTROL == 10 ]; then
-            CONTROL=0
-            DATE=$(date +%H:%M:%S)
-            echo "$DATE--> Ensuring manual fan control"  >> $LOG_FILE
-            /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
-            else
-            CONTROL=$(( CONTROL + 1 ))
-            fi
-         # Convert to HEX for ipmi
-         HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
-         # Log current time, temp, and fan speed.
-         DATE=$(date +%H:%M:%S)
-         echo "$DATE - Temp: $T --> Fan: $FAN_PERCENT%">> $LOG_FILE
-         # Set fan speed via ipmitool
-         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
          fi
-      #if temps are invalid, go back do Dell Control and exit app
+         
+         # Periodic manual control check (every 10 cycles)
+         if [ "$CONTROL" -eq 10 ]; then
+            CONTROL=0
+            /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
+            echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
+         else
+            CONTROL=$(( CONTROL + 1 ))
+         fi
+         
+         # Apply fan speed
+         HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
+         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
+         echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
       else
-      echo "$DATE--> Somethings not right. No valid data from sensors. Enabling stock Dell fan control">> $LOG_FILE
+         # Log based on LOG_FREQUENCY or if DEBUG is enabled
+         if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
+            echo "$DATE ✓ System stable - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
+         fi
+      fi
+   else
+      # Error handling: Invalid temperature reading
+      echo "$DATE ⚠ Error: Invalid temperature reading (${T}°C). Reverting to stock Dell fan control" >> $LOG_FILE
       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
       exit 0
-      fi
+   fi
    #end loop, and sleep for how ever many seconds LOOP_TIME is set to above.
    sleep $LOOP_TIME;
    done

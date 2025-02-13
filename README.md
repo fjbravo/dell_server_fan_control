@@ -15,17 +15,83 @@ If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15
 
 Installation:
 
-Ensure IPMI is enabled in iDRAC settings.
+To install the application, run:
 
-run " apt update; apt install lm-sensors ipmitool "
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+```
 
-Copy fan control scripts to /root/ and make executable (chmod +x) If you change the location, the paths must be edited in dell_ipmi_fan_control.service
+Note: Ensure IPMI is enabled in your iDRAC settings before installation.
 
-Edit variables in both .sh files.
+The installation script will:
+- Install required dependencies (lm-sensors and ipmitool)
+- Install the scripts to /usr/local/bin/dell-fan-control/
+- Create and enable a systemd service
+- Start the fan control service with default settings
 
-Copy dell_ipmi_fan_control.service file to /etc/systemd/system/
+Configuration:
+-------------
+All settings are stored in `/usr/local/bin/dell-fan-control/config.env`. The following options are available:
 
-run " systemctl enable dell_ipmi_fan_control.service "
-run " systemctl start dell_ipmi_fan_control.service "
+### iDRAC Settings
+```bash
+IDRAC_IP="192.168.0.20"      # IP address of your iDRAC
+IDRAC_USER="root"            # iDRAC username
+IDRAC_PASSWORD="calvin"      # iDRAC password
+```
 
-if you make changes to the scripts or service file, run " systemctl daemon-reload ", then systemctl restart dell_ipmi_fan_control.service "
+### Temperature Control Settings
+```bash
+# Minimum fan speed (percentage)
+FAN_MIN="12"                 # Fans will never go below this speed
+
+# Temperature thresholds (in Celsius)
+MIN_TEMP="40"               # Temperature at which fans start ramping up
+MAX_TEMP="80"               # Temperature at which fans reach 100%
+TEMP_FAIL_THRESHOLD="83"    # Emergency shutdown temperature
+
+# Hysteresis settings (prevents rapid fan speed changes)
+HYST_WARMING="3"            # Degrees increase needed before speeding up fans
+HYST_COOLING="4"            # Degrees decrease needed before slowing down fans
+```
+
+### Monitoring Settings
+```bash
+LOOP_TIME="10"              # How often to check temperatures (in seconds)
+LOG_FREQUENCY="6"           # How often to log when system is stable (in cycles)
+LOG_FILE="/var/log/fan_control.log"  # Log file location
+CLEAR_LOG="y"              # Clear log on service start (y/n)
+DEBUG="n"                  # Enable verbose logging (y/n)
+```
+
+### Dynamic Configuration
+The service automatically reloads the configuration every 60 seconds. You can modify settings while the service is running:
+1. Edit config.env: `sudo nano /usr/local/bin/dell-fan-control/config.env`
+2. Changes will take effect within 60 seconds
+3. No service restart required
+
+### Monitoring Commands
+```bash
+# View real-time fan control logs
+sudo tail -f /var/log/fan_control.log
+
+# View service logs
+sudo journalctl -fu dell_ipmi_fan_control    # Follow logs in real-time
+sudo journalctl -u dell_ipmi_fan_control     # Show all logs
+
+# Check service status
+sudo systemctl status dell_ipmi_fan_control
+
+# Service control
+sudo systemctl stop dell_ipmi_fan_control     # Stop the service
+sudo systemctl start dell_ipmi_fan_control    # Start the service
+sudo systemctl restart dell_ipmi_fan_control  # Restart the service
+```
+
+### Log Messages
+The log file shows different types of messages:
+- ✓ Normal operation (e.g., "System stable - Temp: 45°C, Fan: 35%")
+- ⚡ Changes detected (e.g., "Temperature change detected")
+- ↑↓ Fan speed adjustments
+- ⚠ Warnings and critical events
+- ⚙ Configuration changes
