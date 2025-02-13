@@ -37,12 +37,30 @@ fi
 
 
 
-# Clear logs on startup if enabled
-if [ $CLEAR_LOG == "y" ]; then
-   truncate -s 0 $LOG_FILE
-   fi
-# Get system date & time.
+# Get system date & time for timestamp and logging
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DATE=$(date +%d-%m-%Y\ %H:%M:%S)
+
+# Create logs directory if it doesn't exist
+LOG_DIR=$(dirname "$LOG_FILE")
+mkdir -p "$LOG_DIR"
+
+# Create new log file with timestamp
+LOG_FILE_BASE=$(basename "$LOG_FILE")
+LOG_FILE_NAME="${LOG_FILE_BASE%.*}"  # Remove extension if any
+LOG_FILE_EXT="${LOG_FILE_BASE##*.}"  # Get extension if any
+if [ "$LOG_FILE_NAME" = "$LOG_FILE_EXT" ]; then
+    # No extension in original LOG_FILE
+    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}"
+else
+    # Has extension
+    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}.${LOG_FILE_EXT}"
+fi
+LOG_FILE="$NEW_LOG_FILE"
+
+# Create symbolic link to latest log
+LATEST_LOG="$LOG_DIR/latest_fan_control.log"
+ln -sf "$LOG_FILE" "$LATEST_LOG"
 # Start logging
 echo "Date $DATE --- Starting Dell IPMI fan control service...">> $LOG_FILE
 echo "Date $DATE --- iDRAC IP = "$IDRAC_IP"">> $LOG_FILE
@@ -54,12 +72,8 @@ echo "Date $DATE --- System shutdown temp = "$TEMP_FAIL_THRESHOLD"c">> $LOG_FILE
 echo "Date $DATE --- Degrees warmer before increasing fan speed = "$HYST_WARMING"c">> $LOG_FILE
 echo "Date $DATE --- Degrees cooler before decreasing fan speed = "$HYST_COOLING"c">> $LOG_FILE
 echo "Date $DATE --- Time between temperature checks = "$LOOP_TIME" seconds">> $LOG_FILE
-if [ $CLEAR_LOG == "y" ]; then
-   echo "Date $DATE --- Log clearing at startup is enabled">> $LOG_FILE
-   else
-   echo "Date $DATE --- Log clearing at startup is disabled">> $LOG_FILE
-   fi
-echo "Date $DATE --- Log file location is "$LOG_FILE" (You are looking at it silly.)">> $LOG_FILE
+echo "Date $DATE --- Current log file: $LOG_FILE">> $LOG_FILE
+echo "Date $DATE --- Latest log symlink: $LATEST_LOG">> $LOG_FILE
 # Function to check IPMI connectivity
 check_ipmi() {
     if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x00 2>/dev/null; then
