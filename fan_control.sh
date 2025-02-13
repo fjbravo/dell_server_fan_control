@@ -86,7 +86,7 @@ echo "Date $DATE --- Degrees cooler before decreasing fan speed = "$HYST_COOLING
 echo "Date $DATE --- Time between temperature checks = "$LOOP_TIME" seconds">> $LOG_FILE
 echo "Date $DATE --- Current log file: $LOG_FILE">> $LOG_FILE
 echo "Date $DATE --- Latest log symlink: $LATEST_LOG">> $LOG_FILE
-# Function to check IPMI connectivity
+# Function to check IPMI connectivity and initialize if needed
 check_ipmi() {
     # Check if ipmitool exists
     if ! command -v ipmitool >/dev/null 2>&1; then
@@ -94,8 +94,8 @@ check_ipmi() {
         return 1
     fi
 
-    # Check if we can connect to iDRAC
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x00 2>/dev/null; then
+    # Basic connectivity test first
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD chassis power status 2>/dev/null; then
         echo "Error: Cannot connect to IPMI. Check iDRAC settings:" >&2
         echo "  - IP: $IDRAC_IP" >&2
         echo "  - User: $IDRAC_USER" >&2
@@ -104,9 +104,21 @@ check_ipmi() {
         return 1
     fi
 
-    # Check if we have permission to control fans
+    # Enable IPMI LAN channel
+    echo "Initializing IPMI LAN channel..." >&2
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 access on >/dev/null 2>&1
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 privilege 4 >/dev/null 2>&1
+
+    # Try to enable manual fan control
+    echo "Attempting to enable manual fan control..." >&2
     if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 2>/dev/null; then
-        echo "Error: Cannot control fans. Check iDRAC user permissions." >&2
+        echo "Error: Cannot enable manual fan control. Check iDRAC user permissions." >&2
+        return 1
+    fi
+
+    # Verify we can read fan status
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD sdr type fan >/dev/null 2>&1; then
+        echo "Error: Cannot read fan status. IPMI configuration may be incorrect." >&2
         return 1
     fi
 
