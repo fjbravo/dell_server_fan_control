@@ -18,7 +18,7 @@ Installation:
 To install the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/fix/script-crash/install.sh)"
 ```
 
 Note: Ensure IPMI is enabled in your iDRAC settings before installation.
@@ -59,8 +59,7 @@ HYST_COOLING="4"            # Degrees decrease needed before slowing down fans
 ```bash
 LOOP_TIME="10"              # How often to check temperatures (in seconds)
 LOG_FREQUENCY="6"           # How often to log when system is stable (in cycles)
-LOG_FILE="/var/log/fan_control.log"  # Log file location
-CLEAR_LOG="y"              # Clear log on service start (y/n)
+LOG_FILE="/var/log/fan_control.log"  # Base log file location (timestamped files will be created)
 DEBUG="n"                  # Enable verbose logging (y/n)
 ```
 
@@ -73,7 +72,8 @@ The service automatically reloads the configuration every 60 seconds. You can mo
 ### Monitoring Commands
 ```bash
 # View real-time fan control logs
-sudo tail -f /var/log/fan_control.log
+sudo tail -f /var/log/latest_fan_control.log  # Latest log file
+ls -l /var/log/fan_control_*.log             # List all log files
 
 # View service logs
 sudo journalctl -fu dell_ipmi_fan_control    # Follow logs in real-time
