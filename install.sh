@@ -114,10 +114,10 @@ backup_existing() {
         echo "Creating backup..."
         mkdir -p "$BACKUP_DIR/scripts"
         
-        # Backup scripts but exclude config file
+        # Backup all files from install directory
         if [ -d "$INSTALL_DIR" ]; then
-            cp "$INSTALL_DIR/fan_control.sh" "$INSTALL_DIR/shutdown_fan_control.sh" "$BACKUP_DIR/scripts/" 2>/dev/null || true
-            echo "- Backed up script files"
+            cp "$INSTALL_DIR"/* "$BACKUP_DIR/scripts/" 2>/dev/null || true
+            echo "- Backed up all files from $INSTALL_DIR"
         fi
         
         if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
@@ -148,9 +148,6 @@ install_files() {
         echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
             echo "- Preserving existing configuration"
-            # Save a backup just in case
-            cp "$INSTALL_DIR/config.env" "$BACKUP_DIR/config.env.old"
-            echo "- Backup saved to: $BACKUP_DIR/config.env.old"
             echo "- New default config template available at: $TEMP_DIR/config.env"
         else
             echo "! No existing config found, installing default configuration..."
