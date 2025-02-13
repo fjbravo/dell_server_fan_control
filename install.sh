@@ -145,72 +145,13 @@ install_files() {
     
     # Handle config file
     if [ "$IS_UPDATE" = true ]; then
-        echo "Processing configuration update..."
+        echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
-            # Create temporary files
-            MERGED_CONFIG=$(mktemp)
-            if [ ! -f "$MERGED_CONFIG" ]; then
-                echo "Error: Failed to create temporary file for config merging"
-                exit 1
-            fi
-            
-            # Get list of variables from new config
-            echo "- Checking for new configuration options..."
-            if ! grep -oP '^[A-Za-z_]+=.*$' "$TEMP_DIR/config.env" > /dev/null; then
-                echo "Error: New configuration file appears to be empty or invalid"
-                rm -f "$MERGED_CONFIG"
-                exit 1
-            fi
-            
-            # Process each variable
-            grep -oP '^[A-Za-z_]+=.*$' "$TEMP_DIR/config.env" | cut -d'=' -f1 | while read -r VAR; do
-                # If variable exists in old config, use that value
-                if grep -q "^${VAR}=" "$INSTALL_DIR/config.env"; then
-                    echo "- Preserving existing setting: ${VAR}"
-                    grep "^${VAR}=" "$INSTALL_DIR/config.env" >> "$MERGED_CONFIG"
-                else
-                    echo "- Adding new setting: ${VAR}"
-                    grep "^${VAR}=" "$TEMP_DIR/config.env" >> "$MERGED_CONFIG"
-                fi
-            done
-            
-            # Verify merged config has content
-            if [ ! -s "$MERGED_CONFIG" ]; then
-                echo "Error: Failed to merge configurations"
-                rm -f "$MERGED_CONFIG"
-                exit 1
-            fi
-            
-            # Backup old config
+            echo "- Preserving existing configuration"
+            # Save a backup just in case
             cp "$INSTALL_DIR/config.env" "$BACKUP_DIR/config.env.old"
-            echo "- Backed up old configuration to: $BACKUP_DIR/config.env.old"
-            
-            # Merge configs while preserving structure and comments
-            echo "- Updating configuration structure..."
-            TEMP_FINAL=$(mktemp)
-            while IFS= read -r line; do
-                if [[ "$line" =~ ^[A-Za-z_]+= ]]; then
-                    # For variable lines, get the variable name
-                    var_name=$(echo "$line" | cut -d'=' -f1)
-                    # Check if we have this variable in merged config
-                    if grep -q "^${var_name}=" "$MERGED_CONFIG"; then
-                        grep "^${var_name}=" "$MERGED_CONFIG" >> "$TEMP_FINAL"
-                    else
-                        echo "$line" >> "$TEMP_FINAL"
-                    fi
-                else
-                    # For comments and empty lines, copy as is
-                    echo "$line" >> "$TEMP_FINAL"
-                fi
-            done < "$TEMP_DIR/config.env"
-            
-            # Install the merged config
-            mv "$TEMP_FINAL" "$INSTALL_DIR/config.env"
-            
-            # Cleanup
-            rm "$MERGED_CONFIG"
-            echo "✓ Configuration updated successfully"
-            echo "- Review $INSTALL_DIR/config.env for any new options"
+            echo "- Backup saved to: $BACKUP_DIR/config.env.old"
+            echo "- New default config template available at: $TEMP_DIR/config.env"
         else
             echo "! No existing config found, installing default configuration..."
             cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
@@ -294,4 +235,8 @@ if [ "$IS_UPDATE" = true ]; then
     echo
     echo "Note: If you experience any issues with this update, you can restore"
     echo "      the backup from $BACKUP_DIR"
+    echo
+    echo "      A new default configuration template is available at:"
+    echo "      $TEMP_DIR/config.env"
+    echo "      You can review it for any new configuration options."
 fi
