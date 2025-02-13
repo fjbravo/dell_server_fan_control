@@ -60,8 +60,39 @@ if [ $CLEAR_LOG == "y" ]; then
    echo "Date $DATE --- Log clearing at startup is disabled">> $LOG_FILE
    fi
 echo "Date $DATE --- Log file location is "$LOG_FILE" (You are looking at it silly.)">> $LOG_FILE
+# Function to check IPMI connectivity
+check_ipmi() {
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x00 2>/dev/null; then
+        echo "$DATE ⚠ Error: Cannot connect to IPMI. Check iDRAC settings." >> $LOG_FILE
+        return 1
+    fi
+    return 0
+}
+
+# Function to get CPU temperature
+get_cpu_temp() {
+    local temp
+    temp=$(sensors coretemp-isa-0000 coretemp-isa-0001 2>/dev/null | grep Package | cut -c17-18 | sort -n | tail -1)
+    if [ $? -ne 0 ] || [ -z "$temp" ]; then
+        echo "$DATE ⚠ Error: Cannot read CPU temperature sensors." >> $LOG_FILE
+        return 1
+    fi
+    echo "$temp"
+    return 0
+}
+
+# Check IPMI connectivity first
+if ! check_ipmi; then
+    exit 1
+fi
+
 # Get highest temp of any cpu package.
-T_CHECK=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
+T_CHECK=$(get_cpu_temp)
+if [ $? -ne 0 ]; then
+    echo "$DATE ⚠ Error: Temperature check failed. Enabling stock Dell fan control." >> $LOG_FILE
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+    exit 1
+fi
 # Ensure we have a value returned between 0 and 100.
 if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    # Enable manual fan control and set fan PWM % via ipmitool
@@ -75,8 +106,10 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    exit 0
    fi
 
-# Initialize control counter
+# Initialize control counter and other variables
 CONTROL=0
+T_OLD=0
+FAN_PERCENT=$FAN_MIN
 
 # Function to reload configuration
 reload_config() {
@@ -95,8 +128,20 @@ while true; do
        reload_config
    fi
    
+   # Check IPMI connectivity periodically
+   if [ "$CONTROL" -eq 0 ] && ! check_ipmi; then
+       echo "$DATE ⚠ Error: Lost IPMI connection. Enabling stock Dell fan control." >> $LOG_FILE
+       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+       exit 1
+   fi
+
    # Get highest CPU package temperature from all CPU sensors
-   T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
+   T=$(get_cpu_temp)
+   if [ $? -ne 0 ]; then
+       echo "$DATE ⚠ Error: Failed to read temperature. Enabling stock Dell fan control." >> $LOG_FILE
+       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+       exit 1
+   fi
    
    # Validate temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
@@ -141,7 +186,11 @@ while true; do
          
          # Apply fan speed
          HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
-         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
+         if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED 2>/dev/null; then
+             echo "$DATE ⚠ Error: Failed to set fan speed. Enabling stock Dell fan control." >> $LOG_FILE
+             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+             exit 1
+         fi
          echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
       else
          # Log based on LOG_FREQUENCY or if DEBUG is enabled
