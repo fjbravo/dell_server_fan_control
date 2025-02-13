@@ -20,15 +20,19 @@
 
 
 
-#-----USER DEFINED VARIABLES-----
-# iDRAC
-IDRAC_IP="192.168.0.20"
-IDRAC_USER="root"
-IDRAC_PASSWORD="calvin"
-# Log file location
-LOG_FILE=/var/log/fan_control.log
-#-----END USER DEFINED VARIABLES-----
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Source configuration file (looking in the same directory as the script)
+CONFIG_FILE="$SCRIPT_DIR/config.env"
+
+# Check if config file exists and source it
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "Error: Configuration file not found at $CONFIG_FILE"
+    exit 1
+fi
 
 # Get system date & time.
 DATE=$(date +%d-%m-%Y\ %H:%M:%S)
