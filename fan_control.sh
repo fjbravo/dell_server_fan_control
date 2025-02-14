@@ -514,7 +514,7 @@ while true; do
       fi
 
       # Check if temperature changes exceed hysteresis thresholds
-      if [ $CPU_CHANGE_COOLING -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
+      if [ $((CPU_T_OLD-CPU_T)) -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
          [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]; then
          
          [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Temperature change exceeds hysteresis threshold" >> $LOG_FILE
