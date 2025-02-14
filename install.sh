@@ -100,10 +100,9 @@ check_installation() {
     if [ -d "$INSTALL_DIR" ] || [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
         echo "Existing installation found"
         IS_UPDATE=true
-        return 0
     else
         echo "No existing installation found"
-        return 1
+        IS_UPDATE=false
     fi
 }
 
@@ -198,10 +197,7 @@ manage_service() {
 # Main installation process
 check_dependencies
 download_files
-# Temporarily disable exit on error for check_installation
-set +e
 check_installation
-set -e
 backup_existing
 install_files
 manage_service
