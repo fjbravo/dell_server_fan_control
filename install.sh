@@ -198,7 +198,10 @@ manage_service() {
 # Main installation process
 check_dependencies
 download_files
+# Temporarily disable exit on error for check_installation
+set +e
 check_installation
+set -e
 backup_existing
 install_files
 manage_service
