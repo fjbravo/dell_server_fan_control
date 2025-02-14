@@ -529,14 +529,21 @@ while true; do
          
          # Calculate GPU fan speed and determine if extra cooling is needed
          local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP")
+         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Calculated required GPU fan speed: ${gpu_required_percent}%" >> $LOG_FILE
+         
          # Always calculate extra cooling based on GPU temperature
          if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
+            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling" >> $LOG_FILE
             GPU_EXTRA_PERCENT=$((gpu_required_percent - FAN_MIN))
+            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Initial extra cooling calculation: ${gpu_required_percent}% - ${FAN_MIN}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+            
             # Ensure extra cooling is at least 0
             if [ "$GPU_EXTRA_PERCENT" -lt 0 ]; then
+               [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Extra cooling was negative, setting to 0%" >> $LOG_FILE
                GPU_EXTRA_PERCENT=0
             fi
          else
+            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C <= min temp ${GPU_MIN_TEMP}°C, no extra cooling needed" >> $LOG_FILE
             GPU_EXTRA_PERCENT=0
          fi
          
