@@ -186,6 +186,7 @@ fi
 
 # Get initial CPU temperature
 CPU_T=$(get_cpu_temp)
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
 if [ $? -ne 0 ]; then
     echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
     /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
@@ -197,6 +198,7 @@ GPU_T=$(get_gpu_temp)
 if [ $? -ne 0 ]; then
     echo "$DATE ⚠ Warning: Failed to read GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
     GPU_T=$CPU_T
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read GPU temperature: ${GPU_T}°C" >> $LOG_FILE
 fi
 
 # Ensure we have valid temperature readings
@@ -453,6 +455,11 @@ BASE_FAN_PERCENT=$FAN_MIN
 GPU_EXTRA_PERCENT=0
 
 # Beginning of monitoring and control loop
+   # Debug: Log current settings at start of loop
+   if [ "$DEBUG" = "y" ]; then
+      echo "$DATE 🔍 DEBUG: Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C" >> $LOG_FILE
+      echo "$DATE 🔍 DEBUG: Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+   fi
 while true; do
    DATE=$(date +%H:%M:%S)
    
@@ -461,6 +468,7 @@ while true; do
 
    # Get CPU temperature
    CPU_T=$(get_cpu_temp)
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
    if [ $? -ne 0 ]; then
        echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
        /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
@@ -472,9 +480,11 @@ while true; do
    if [ $? -ne 0 ]; then
        echo "$DATE ⚠ Warning: Failed to read GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
        GPU_T=$CPU_T
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read GPU temperature: ${GPU_T}°C" >> $LOG_FILE
    fi
    
    # Validate temperature readings (must be between 1-99°C)
+      [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Temperature readings are valid (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)" >> $LOG_FILE
    if [ "$CPU_T" -ge 1 ] && [ "$CPU_T" -le 99 ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
       # Check for critical temperature thresholds
       if [ "$CPU_T" -ge $CPU_TEMP_FAIL_THRESHOLD ]; then
@@ -491,10 +501,23 @@ while true; do
          exit 0
       fi
       
+      # Calculate temperature changes for hysteresis
+      CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))
+      CPU_CHANGE_WARMING=$((CPU_T-CPU_T_OLD))
+      GPU_CHANGE_COOLING=$((GPU_T_OLD-GPU_T))
+      GPU_CHANGE_WARMING=$((GPU_T-GPU_T_OLD))
+      
+      if [ "$DEBUG" = "y" ]; then
+         echo "$DATE 🔍 DEBUG: Temperature changes:" >> $LOG_FILE
+         echo "$DATE 🔍 DEBUG: CPU - Cooling: ${CPU_CHANGE_COOLING}°C, Warming: ${CPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)" >> $LOG_FILE
+         echo "$DATE 🔍 DEBUG: GPU - Cooling: ${GPU_CHANGE_COOLING}°C, Warming: ${GPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)" >> $LOG_FILE
+      fi
+
       # Check if temperature changes exceed hysteresis thresholds
-      if [ $((CPU_T_OLD-CPU_T)) -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
+      if [ $CPU_CHANGE_COOLING -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
          [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]; then
          
+         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Temperature change exceeds hysteresis threshold" >> $LOG_FILE
          echo "$DATE ⚡ Temperature change detected (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)" >> $LOG_FILE
          
          # Update last temperatures for future comparisons
@@ -522,6 +545,7 @@ while true; do
          fi
          
          # Set base speed for all fans with a single command
+         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting base fan speed for all fans to ${BASE_FAN_PERCENT}%" >> $LOG_FILE
          if ! set_all_fans_speed "$BASE_FAN_PERCENT"; then
              echo "$DATE ⚠ Error: Failed to set base fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
              /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
@@ -533,6 +557,7 @@ while true; do
              local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
              if [ "$gpu_final_percent" -gt 100 ]; then
                 gpu_final_percent=100
+             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting GPU fans (${GPU_FANS}) to ${gpu_final_percent}% (base ${BASE_FAN_PERCENT}% + extra ${GPU_EXTRA_PERCENT}%)" >> $LOG_FILE
              fi
              if ! set_fan_speed "$GPU_FANS" "$gpu_final_percent"; then
                  echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
