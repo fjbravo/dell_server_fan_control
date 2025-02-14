@@ -250,6 +250,31 @@ calculate_fan_speed() {
     echo "$fan_percent"
 }
 
+# Function to get all fan numbers
+get_all_fans() {
+    # Get unique fan numbers from both CPU and GPU fans
+    local all_fans=""
+    local seen=()
+    
+    # Process CPU fans
+    IFS=',' read -ra CPU_FAN_LIST <<< "$CPU_FANS"
+    for fan in "${CPU_FAN_LIST[@]}"; do
+        seen[$fan]=1
+        all_fans+="$fan,"
+    done
+    
+    # Process GPU fans, only adding those not already included
+    IFS=',' read -ra GPU_FAN_LIST <<< "$GPU_FANS"
+    for fan in "${GPU_FAN_LIST[@]}"; do
+        if [ -z "${seen[$fan]}" ]; then
+            all_fans+="$fan,"
+        fi
+    done
+    
+    # Remove trailing comma
+    echo "${all_fans%,}"
+}
+
 # Function to validate configuration
 validate_config() {
     local error_found=0
@@ -427,8 +452,8 @@ check_and_reload_config() {
 # Initialize variables
 CPU_T_OLD=0
 GPU_T_OLD=0
-CPU_FAN_PERCENT=$FAN_MIN
-GPU_FAN_PERCENT=$FAN_MIN
+BASE_FAN_PERCENT=$FAN_MIN
+GPU_EXTRA_PERCENT=0
 
 # Beginning of monitoring and control loop
 while true; do
@@ -479,9 +504,16 @@ while true; do
          CPU_T_OLD=$CPU_T
          GPU_T_OLD=$GPU_T
          
-         # Calculate required fan speeds
-         CPU_FAN_PERCENT=$(calculate_fan_speed "$CPU_T" "$CPU_MIN_TEMP" "$CPU_MAX_TEMP")
-         GPU_FAN_PERCENT=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP")
+         # Calculate base fan speed from CPU temperature (applies to all fans)
+         BASE_FAN_PERCENT=$(calculate_fan_speed "$CPU_T" "$CPU_MIN_TEMP" "$CPU_MAX_TEMP")
+         
+         # Calculate GPU fan speed and determine if extra cooling is needed
+         local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP")
+         if [ "$gpu_required_percent" -gt "$BASE_FAN_PERCENT" ]; then
+            GPU_EXTRA_PERCENT=$((gpu_required_percent - BASE_FAN_PERCENT))
+         else
+            GPU_EXTRA_PERCENT=0
+         fi
          
          # Periodic manual control check (every 10 cycles)
          if [ "$CONTROL" -eq 10 ]; then
@@ -492,24 +524,38 @@ while true; do
             CONTROL=$(( CONTROL + 1 ))
          fi
          
-         # Set fan speeds for CPU and GPU zones
-         if ! set_fan_speed "$CPU_FANS" "$CPU_FAN_PERCENT"; then
-             echo "$DATE ⚠ Error: Failed to set CPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
+         # Set base speed for all fans
+         ALL_FANS=$(get_all_fans)
+         if ! set_fan_speed "$ALL_FANS" "$BASE_FAN_PERCENT"; then
+             echo "$DATE ⚠ Error: Failed to set base fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
              /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
              exit 1
          fi
          
-         if ! set_fan_speed "$GPU_FANS" "$GPU_FAN_PERCENT"; then
-             echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
-             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
-             exit 1
+         # If GPU needs extra cooling, increase GPU fan speeds
+         if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
+             local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
+             if [ "$gpu_final_percent" -gt 100 ]; then
+                gpu_final_percent=100
+             fi
+             if ! set_fan_speed "$GPU_FANS" "$gpu_final_percent"; then
+                 echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
+                 /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+                 exit 1
+             fi
+             echo "$DATE ✓ Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)" >> $LOG_FILE
+         else
+             echo "$DATE ✓ Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)" >> $LOG_FILE
          fi
-         
-         echo "$DATE ✓ Updated - CPU Temp: ${CPU_T}°C (Fan: ${CPU_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (Fan: ${GPU_FAN_PERCENT}%)" >> $LOG_FILE
       else
          # Log based on LOG_FREQUENCY or if DEBUG is enabled
          if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
-            echo "$DATE ✓ System stable - CPU Temp: ${CPU_T}°C (Fan: ${CPU_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (Fan: ${GPU_FAN_PERCENT}%)" >> $LOG_FILE
+            if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
+                local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
+                echo "$DATE ✓ System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)" >> $LOG_FILE
+            else
+                echo "$DATE ✓ System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)" >> $LOG_FILE
+            fi
          fi
       fi
    else
