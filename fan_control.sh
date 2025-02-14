@@ -439,6 +439,14 @@ check_and_reload_config() {
             return 1
         fi
         
+        # Save the new config as template
+        TEMPLATE_FILE="${CONFIG_FILE%.*}.template.env"
+        if ! cp "$CONFIG_FILE" "$TEMPLATE_FILE" 2>/dev/null; then
+            echo "$DATE ⚠ Warning: Could not save new configuration as template" >&2
+        else
+            echo "$DATE ⚙ Saved new configuration as template" >> $LOG_FILE
+        fi
+        
         # Clean up and update modification time
         rm -f "$temp_config"
         LAST_MOD_TIME=$current_mod_time
