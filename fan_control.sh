@@ -84,8 +84,7 @@ echo "Date $DATE --- CPU shutdown temp = "$CPU_TEMP_FAIL_THRESHOLD"c">> $LOG_FIL
 echo "Date $DATE --- GPU fan curve min point = "$GPU_MIN_TEMP"c">> $LOG_FILE
 echo "Date $DATE --- GPU fan curve max point = "$GPU_MAX_TEMP"c">> $LOG_FILE
 echo "Date $DATE --- GPU shutdown temp = "$GPU_TEMP_FAIL_THRESHOLD"c">> $LOG_FILE
-echo "Date $DATE --- CPU fans = "$CPU_FANS"">> $LOG_FILE
-echo "Date $DATE --- GPU fans = "$GPU_FANS"">> $LOG_FILE
+echo "Date $DATE --- GPU-specific fans = "$GPU_FANS"">> $LOG_FILE
 echo "Date $DATE --- Degrees warmer before increasing fan speed = "$HYST_WARMING"c">> $LOG_FILE
 echo "Date $DATE --- Degrees cooler before decreasing fan speed = "$HYST_COOLING"c">> $LOG_FILE
 echo "Date $DATE --- Time between temperature checks = "$LOOP_TIME" seconds">> $LOG_FILE
@@ -259,29 +258,9 @@ calculate_fan_speed() {
     echo "$fan_percent"
 }
 
-# Function to get all fan numbers
+# Function to get all fan numbers (1-6 for Dell servers)
 get_all_fans() {
-    # Get unique fan numbers from both CPU and GPU fans
-    local all_fans=""
-    local seen=()
-    
-    # Process CPU fans
-    IFS=',' read -ra CPU_FAN_LIST <<< "$CPU_FANS"
-    for fan in "${CPU_FAN_LIST[@]}"; do
-        seen[$fan]=1
-        all_fans+="$fan,"
-    done
-    
-    # Process GPU fans, only adding those not already included
-    IFS=',' read -ra GPU_FAN_LIST <<< "$GPU_FANS"
-    for fan in "${GPU_FAN_LIST[@]}"; do
-        if [ -z "${seen[$fan]}" ]; then
-            all_fans+="$fan,"
-        fi
-    done
-    
-    # Remove trailing comma
-    echo "${all_fans%,}"
+    echo "1,2,3,4,5,6"
 }
 
 # Function to validate configuration
@@ -294,7 +273,7 @@ validate_config() {
         "FAN_MIN"  # Fan settings
         "CPU_MIN_TEMP" "CPU_MAX_TEMP" "CPU_TEMP_FAIL_THRESHOLD"  # CPU temperature settings
         "GPU_MIN_TEMP" "GPU_MAX_TEMP" "GPU_TEMP_FAIL_THRESHOLD"  # GPU temperature settings
-        "GPU_FANS" "CPU_FANS"  # Fan zone settings
+        "GPU_FANS"  # Fan zone settings
         "HYST_WARMING" "HYST_COOLING"  # Hysteresis settings
         "LOOP_TIME" "LOG_FREQUENCY" "LOG_FILE"  # Operational settings
     )
@@ -354,14 +333,9 @@ validate_config() {
         error_found=1
     fi
     
-    # Validate fan zone settings
+    # Validate GPU fan settings
     if ! [[ "$GPU_FANS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
         echo "$DATE ⚠ Error: GPU_FANS must be a comma-separated list of fan numbers" >&2
-        error_found=1
-    fi
-    
-    if ! [[ "$CPU_FANS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-        echo "$DATE ⚠ Error: CPU_FANS must be a comma-separated list of fan numbers" >&2
         error_found=1
     fi
     
