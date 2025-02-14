@@ -179,16 +179,25 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    exit 0
    fi
 
-# Initialize control counter and other variables
-CONTROL=0
+# Initialize variables
 T_OLD=0
 FAN_PERCENT=$FAN_MIN
 
-# Function to reload configuration
-reload_config() {
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        echo "$DATE ⚙ Configuration reloaded" >> $LOG_FILE
+# Get initial config file modification time
+LAST_MOD_TIME=$(stat -c %Y "$CONFIG_FILE")
+
+# Function to check if config has changed and reload if needed
+check_and_reload_config() {
+    local current_mod_time
+    current_mod_time=$(stat -c %Y "$CONFIG_FILE")
+    
+    if [ "$current_mod_time" != "$LAST_MOD_TIME" ]; then
+        if [ -f "$CONFIG_FILE" ]; then
+            echo "$DATE ⚙ Configuration file changed, reloading settings..." >> $LOG_FILE
+            source "$CONFIG_FILE"
+            LAST_MOD_TIME=$current_mod_time
+            echo "$DATE ⚙ Configuration reloaded successfully" >> $LOG_FILE
+        fi
     fi
 }
 
@@ -196,10 +205,8 @@ reload_config() {
 while true; do
    DATE=$(date +%H:%M:%S)
    
-   # Reload config every 60 seconds (when CONTROL is 0)
-   if [ "$CONTROL" -eq 0 ]; then
-       reload_config
-   fi
+   # Check if config file has changed
+   check_and_reload_config
 
    # Get highest CPU package temperature from all CPU sensors
    T=$(get_cpu_temp)
