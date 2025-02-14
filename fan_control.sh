@@ -183,21 +183,141 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
 T_OLD=0
 FAN_PERCENT=$FAN_MIN
 
+# Function to validate configuration
+validate_config() {
+    local error_found=0
+    
+    # Check if all required variables are set
+    local required_vars=(
+        "IDRAC_IP" "IDRAC_USER" "IDRAC_PASSWORD"  # iDRAC settings
+        "FAN_MIN" "MIN_TEMP" "MAX_TEMP" "TEMP_FAIL_THRESHOLD"  # Temperature settings
+        "HYST_WARMING" "HYST_COOLING"  # Hysteresis settings
+        "LOOP_TIME" "LOG_FREQUENCY" "LOG_FILE"  # Operational settings
+    )
+    
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "$DATE ⚠ Error: Required variable $var is not set" >&2
+            error_found=1
+        fi
+    done
+    
+    # Validate numeric values and ranges
+    if ! [[ "$FAN_MIN" =~ ^[0-9]+$ ]] || [ "$FAN_MIN" -lt 0 ] || [ "$FAN_MIN" -gt 100 ]; then
+        echo "$DATE ⚠ Error: FAN_MIN must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$MIN_TEMP" -lt 0 ] || [ "$MIN_TEMP" -gt 100 ]; then
+        echo "$DATE ⚠ Error: MIN_TEMP must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$MAX_TEMP" -lt 0 ] || [ "$MAX_TEMP" -gt 100 ]; then
+        echo "$DATE ⚠ Error: MAX_TEMP must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if [ "$MIN_TEMP" -ge "$MAX_TEMP" ]; then
+        echo "$DATE ⚠ Error: MIN_TEMP must be less than MAX_TEMP" >&2
+        error_found=1
+    fi
+    
+    if [ "$TEMP_FAIL_THRESHOLD" -le "$MAX_TEMP" ]; then
+        echo "$DATE ⚠ Error: TEMP_FAIL_THRESHOLD must be greater than MAX_TEMP" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$LOOP_TIME" =~ ^[0-9]+$ ]] || [ "$LOOP_TIME" -lt 1 ]; then
+        echo "$DATE ⚠ Error: LOOP_TIME must be a positive integer" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$LOG_FREQUENCY" =~ ^[0-9]+$ ]] || [ "$LOG_FREQUENCY" -lt 1 ]; then
+        echo "$DATE ⚠ Error: LOG_FREQUENCY must be a positive integer" >&2
+        error_found=1
+    fi
+    
+    # Validate iDRAC IP format
+    if ! [[ "$IDRAC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$DATE ⚠ Error: IDRAC_IP must be a valid IP address" >&2
+        error_found=1
+    fi
+    
+    return $error_found
+}
+
+# Function to safely get file modification time
+get_mod_time() {
+    local mod_time
+    if ! mod_time=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null); then
+        echo "$DATE ⚠ Error: Cannot read modification time of $CONFIG_FILE" >&2
+        return 1
+    fi
+    echo "$mod_time"
+    return 0
+}
+
+# Validate initial configuration
+if ! validate_config; then
+    echo "$DATE ⚠ Error: Initial configuration is invalid. Please check config.env" >&2
+    exit 1
+fi
+
 # Get initial config file modification time
-LAST_MOD_TIME=$(stat -c %Y "$CONFIG_FILE")
+if ! LAST_MOD_TIME=$(get_mod_time); then
+    echo "$DATE ⚠ Error: Cannot access config file. Using default settings." >> $LOG_FILE
+    LAST_MOD_TIME=0
+fi
 
 # Function to check if config has changed and reload if needed
 check_and_reload_config() {
     local current_mod_time
-    current_mod_time=$(stat -c %Y "$CONFIG_FILE")
+    
+    # Check if config file exists and is readable
+    if [ ! -f "$CONFIG_FILE" ] || [ ! -r "$CONFIG_FILE" ]; then
+        echo "$DATE ⚠ Error: Config file $CONFIG_FILE is not accessible" >&2
+        return 1
+    fi
+    
+    # Get current modification time
+    if ! current_mod_time=$(get_mod_time); then
+        return 1
+    fi
     
     if [ "$current_mod_time" != "$LAST_MOD_TIME" ]; then
-        if [ -f "$CONFIG_FILE" ]; then
-            echo "$DATE ⚙ Configuration file changed, reloading settings..." >> $LOG_FILE
-            source "$CONFIG_FILE"
-            LAST_MOD_TIME=$current_mod_time
-            echo "$DATE ⚙ Configuration reloaded successfully" >> $LOG_FILE
+        echo "$DATE ⚙ Configuration file changed, reloading settings..." >> $LOG_FILE
+        
+        # Create a temporary file for the new configuration
+        local temp_config
+        temp_config=$(mktemp)
+        if [ ! -f "$temp_config" ]; then
+            echo "$DATE ⚠ Error: Cannot create temporary file for config validation" >&2
+            return 1
         fi
+        
+        # Copy current environment variables that we want to preserve
+        declare -p > "$temp_config"
+        
+        # Source the new config file
+        if ! source "$CONFIG_FILE"; then
+            echo "$DATE ⚠ Error: Failed to load new configuration" >&2
+            rm -f "$temp_config"
+            return 1
+        fi
+        
+        # Validate the new configuration
+        if ! validate_config; then
+            echo "$DATE ⚠ Error: New configuration is invalid. Reverting to previous settings." >&2
+            source "$temp_config"
+            rm -f "$temp_config"
+            return 1
+        fi
+        
+        # Clean up and update modification time
+        rm -f "$temp_config"
+        LAST_MOD_TIME=$current_mod_time
+        echo "$DATE ⚙ Configuration reloaded successfully" >> $LOG_FILE
     fi
 }
 
