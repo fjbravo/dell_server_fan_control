@@ -529,8 +529,13 @@ while true; do
          
          # Calculate GPU fan speed and determine if extra cooling is needed
          local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP")
-         if [ "$gpu_required_percent" -gt "$BASE_FAN_PERCENT" ]; then
-            GPU_EXTRA_PERCENT=$((gpu_required_percent - BASE_FAN_PERCENT))
+         # Always calculate extra cooling based on GPU temperature
+         if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
+            GPU_EXTRA_PERCENT=$((gpu_required_percent - FAN_MIN))
+            # Ensure extra cooling is at least 0
+            if [ "$GPU_EXTRA_PERCENT" -lt 0 ]; then
+               GPU_EXTRA_PERCENT=0
+            fi
          else
             GPU_EXTRA_PERCENT=0
          fi
