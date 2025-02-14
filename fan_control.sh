@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Enable error tracing
+set -x
+
 # A simple bash script that uses lm_sensors to check CPU temps, and ipmitool to adjust fan speeds on iDRAC based systems.
 #
 # Copyright (C) 2022  Milkysunshine
@@ -37,12 +40,39 @@ fi
 
 
 
-# Clear logs on startup if enabled
-if [ $CLEAR_LOG == "y" ]; then
-   truncate -s 0 $LOG_FILE
-   fi
-# Get system date & time.
+# Get system date & time for timestamp and logging
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DATE=$(date +%d-%m-%Y\ %H:%M:%S)
+
+# Create logs directory if it doesn't exist
+LOG_DIR=$(dirname "$LOG_FILE")
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+    echo "Error: Failed to create log directory: $LOG_DIR" >&2
+    exit 1
+fi
+
+# Ensure log directory is writable
+if ! [ -w "$LOG_DIR" ]; then
+    echo "Error: Log directory is not writable: $LOG_DIR" >&2
+    exit 1
+fi
+
+# Create new log file with timestamp
+LOG_FILE_BASE=$(basename "$LOG_FILE")
+LOG_FILE_NAME="${LOG_FILE_BASE%.*}"  # Remove extension if any
+LOG_FILE_EXT="${LOG_FILE_BASE##*.}"  # Get extension if any
+if [ "$LOG_FILE_NAME" = "$LOG_FILE_EXT" ]; then
+    # No extension in original LOG_FILE
+    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}"
+else
+    # Has extension
+    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}.${LOG_FILE_EXT}"
+fi
+LOG_FILE="$NEW_LOG_FILE"
+
+# Create symbolic link to latest log
+LATEST_LOG="$LOG_DIR/latest_fan_control.log"
+ln -sf "$LOG_FILE" "$LATEST_LOG"
 # Start logging
 echo "Date $DATE --- Starting Dell IPMI fan control service...">> $LOG_FILE
 echo "Date $DATE --- iDRAC IP = "$IDRAC_IP"">> $LOG_FILE
@@ -54,14 +84,88 @@ echo "Date $DATE --- System shutdown temp = "$TEMP_FAIL_THRESHOLD"c">> $LOG_FILE
 echo "Date $DATE --- Degrees warmer before increasing fan speed = "$HYST_WARMING"c">> $LOG_FILE
 echo "Date $DATE --- Degrees cooler before decreasing fan speed = "$HYST_COOLING"c">> $LOG_FILE
 echo "Date $DATE --- Time between temperature checks = "$LOOP_TIME" seconds">> $LOG_FILE
-if [ $CLEAR_LOG == "y" ]; then
-   echo "Date $DATE --- Log clearing at startup is enabled">> $LOG_FILE
-   else
-   echo "Date $DATE --- Log clearing at startup is disabled">> $LOG_FILE
-   fi
-echo "Date $DATE --- Log file location is "$LOG_FILE" (You are looking at it silly.)">> $LOG_FILE
+echo "Date $DATE --- Current log file: $LOG_FILE">> $LOG_FILE
+echo "Date $DATE --- Latest log symlink: $LATEST_LOG">> $LOG_FILE
+# Function to check IPMI connectivity and initialize if needed
+check_ipmi() {
+    # Check if ipmitool exists
+    if ! command -v ipmitool >/dev/null 2>&1; then
+        echo "Error: 'ipmitool' command not found. Please install ipmitool package." >&2
+        return 1
+    fi
+
+    # Basic connectivity test first
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD chassis power status 2>/dev/null; then
+        echo "Error: Cannot connect to IPMI. Check iDRAC settings:" >&2
+        echo "  - IP: $IDRAC_IP" >&2
+        echo "  - User: $IDRAC_USER" >&2
+        echo "  - Password: [hidden]" >&2
+        echo "  - Ensure IPMI over LAN is enabled in iDRAC" >&2
+        return 1
+    fi
+
+    # Enable IPMI LAN channel
+    echo "Initializing IPMI LAN channel..." >&2
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 access on >/dev/null 2>&1
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 privilege 4 >/dev/null 2>&1
+
+    # Try to enable manual fan control
+    echo "Attempting to enable manual fan control..." >&2
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 2>/dev/null; then
+        echo "Error: Cannot enable manual fan control. Check iDRAC user permissions." >&2
+        return 1
+    fi
+
+    # Verify we can read fan status
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD sdr type fan >/dev/null 2>&1; then
+        echo "Error: Cannot read fan status. IPMI configuration may be incorrect." >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Function to get CPU temperature
+get_cpu_temp() {
+    # Check if sensors command exists
+    if ! command -v sensors >/dev/null 2>&1; then
+        echo "Error: 'sensors' command not found. Please install lm-sensors package." >&2
+        return 1
+    fi
+
+    # Check if sensors are detected
+    if ! sensors >/dev/null 2>&1; then
+        echo "Error: No sensors detected. Please run 'sensors-detect' as root." >&2
+        return 1
+    fi
+
+    local temp
+    temp=$(sensors coretemp-isa-0000 coretemp-isa-0001 2>/dev/null | grep Package | cut -c17-18 | sort -n | tail -1)
+    
+    # Check if we got a valid temperature reading
+    if [ -z "$temp" ]; then
+        echo "Error: Could not read CPU temperature. Check if coretemp module is loaded." >&2
+        echo "Available sensors:" >&2
+        sensors -A >&2
+        return 1
+    fi
+    
+    echo "$temp"
+    return 0
+}
+
+# Check IPMI connectivity first
+if ! check_ipmi; then
+    exit 1
+fi
+
 # Get highest temp of any cpu package.
-T_CHECK=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
+T_CHECK=$(get_cpu_temp)
+if [ $? -ne 0 ]; then
+    echo "$DATE ⚠ Error: Temperature check failed. Enabling stock Dell fan control." >> $LOG_FILE
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+    exit 1
+fi
 # Ensure we have a value returned between 0 and 100.
 if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    # Enable manual fan control and set fan PWM % via ipmitool
@@ -75,14 +179,145 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
    exit 0
    fi
 
-# Initialize control counter
-CONTROL=0
+# Initialize variables
+T_OLD=0
+FAN_PERCENT=$FAN_MIN
 
-# Function to reload configuration
-reload_config() {
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        echo "$DATE ⚙ Configuration reloaded" >> $LOG_FILE
+# Function to validate configuration
+validate_config() {
+    local error_found=0
+    
+    # Check if all required variables are set
+    local required_vars=(
+        "IDRAC_IP" "IDRAC_USER" "IDRAC_PASSWORD"  # iDRAC settings
+        "FAN_MIN" "MIN_TEMP" "MAX_TEMP" "TEMP_FAIL_THRESHOLD"  # Temperature settings
+        "HYST_WARMING" "HYST_COOLING"  # Hysteresis settings
+        "LOOP_TIME" "LOG_FREQUENCY" "LOG_FILE"  # Operational settings
+    )
+    
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "$DATE ⚠ Error: Required variable $var is not set" >&2
+            error_found=1
+        fi
+    done
+    
+    # Validate numeric values and ranges
+    if ! [[ "$FAN_MIN" =~ ^[0-9]+$ ]] || [ "$FAN_MIN" -lt 0 ] || [ "$FAN_MIN" -gt 100 ]; then
+        echo "$DATE ⚠ Error: FAN_MIN must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$MIN_TEMP" -lt 0 ] || [ "$MIN_TEMP" -gt 100 ]; then
+        echo "$DATE ⚠ Error: MIN_TEMP must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$MAX_TEMP" -lt 0 ] || [ "$MAX_TEMP" -gt 100 ]; then
+        echo "$DATE ⚠ Error: MAX_TEMP must be between 0 and 100" >&2
+        error_found=1
+    fi
+    
+    if [ "$MIN_TEMP" -ge "$MAX_TEMP" ]; then
+        echo "$DATE ⚠ Error: MIN_TEMP must be less than MAX_TEMP" >&2
+        error_found=1
+    fi
+    
+    if [ "$TEMP_FAIL_THRESHOLD" -le "$MAX_TEMP" ]; then
+        echo "$DATE ⚠ Error: TEMP_FAIL_THRESHOLD must be greater than MAX_TEMP" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$LOOP_TIME" =~ ^[0-9]+$ ]] || [ "$LOOP_TIME" -lt 1 ]; then
+        echo "$DATE ⚠ Error: LOOP_TIME must be a positive integer" >&2
+        error_found=1
+    fi
+    
+    if ! [[ "$LOG_FREQUENCY" =~ ^[0-9]+$ ]] || [ "$LOG_FREQUENCY" -lt 1 ]; then
+        echo "$DATE ⚠ Error: LOG_FREQUENCY must be a positive integer" >&2
+        error_found=1
+    fi
+    
+    # Validate iDRAC IP format
+    if ! [[ "$IDRAC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$DATE ⚠ Error: IDRAC_IP must be a valid IP address" >&2
+        error_found=1
+    fi
+    
+    return $error_found
+}
+
+# Function to safely get file modification time
+get_mod_time() {
+    local mod_time
+    if ! mod_time=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null); then
+        echo "$DATE ⚠ Error: Cannot read modification time of $CONFIG_FILE" >&2
+        return 1
+    fi
+    echo "$mod_time"
+    return 0
+}
+
+# Validate initial configuration
+if ! validate_config; then
+    echo "$DATE ⚠ Error: Initial configuration is invalid. Please check config.env" >&2
+    exit 1
+fi
+
+# Get initial config file modification time
+if ! LAST_MOD_TIME=$(get_mod_time); then
+    echo "$DATE ⚠ Error: Cannot access config file. Using default settings." >> $LOG_FILE
+    LAST_MOD_TIME=0
+fi
+
+# Function to check if config has changed and reload if needed
+check_and_reload_config() {
+    local current_mod_time
+    
+    # Check if config file exists and is readable
+    if [ ! -f "$CONFIG_FILE" ] || [ ! -r "$CONFIG_FILE" ]; then
+        echo "$DATE ⚠ Error: Config file $CONFIG_FILE is not accessible" >&2
+        return 1
+    fi
+    
+    # Get current modification time
+    if ! current_mod_time=$(get_mod_time); then
+        return 1
+    fi
+    
+    if [ "$current_mod_time" != "$LAST_MOD_TIME" ]; then
+        echo "$DATE ⚙ Configuration file changed, reloading settings..." >> $LOG_FILE
+        
+        # Create a temporary file for the new configuration
+        local temp_config
+        temp_config=$(mktemp)
+        if [ ! -f "$temp_config" ]; then
+            echo "$DATE ⚠ Error: Cannot create temporary file for config validation" >&2
+            return 1
+        fi
+        
+        # Copy current environment variables that we want to preserve
+        declare -p > "$temp_config"
+        
+        # Source the new config file
+        if ! source "$CONFIG_FILE"; then
+            echo "$DATE ⚠ Error: Failed to load new configuration" >&2
+            rm -f "$temp_config"
+            return 1
+        fi
+        
+        # Validate the new configuration
+        if ! validate_config; then
+            echo "$DATE ⚠ Error: New configuration is invalid. Reverting to previous settings." >&2
+            source "$temp_config"
+            rm -f "$temp_config"
+            return 1
+        fi
+        
+        # Clean up and update modification time
+        rm -f "$temp_config"
+        LAST_MOD_TIME=$current_mod_time
+        echo "$DATE ⚙ Configuration reloaded successfully" >> $LOG_FILE
     fi
 }
 
@@ -90,13 +325,16 @@ reload_config() {
 while true; do
    DATE=$(date +%H:%M:%S)
    
-   # Reload config every 60 seconds (when CONTROL is 0)
-   if [ "$CONTROL" -eq 0 ]; then
-       reload_config
-   fi
-   
+   # Check if config file has changed
+   check_and_reload_config
+
    # Get highest CPU package temperature from all CPU sensors
-   T=$(sensors coretemp-isa-0000 coretemp-isa-0001 | grep Package | cut -c17-18 | sort -n | tail -1) > /dev/null
+   T=$(get_cpu_temp)
+   if [ $? -ne 0 ]; then
+       echo "$DATE ⚠ Error: Failed to read temperature. Enabling stock Dell fan control." >> $LOG_FILE
+       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+       exit 1
+   fi
    
    # Validate temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
@@ -141,7 +379,11 @@ while true; do
          
          # Apply fan speed
          HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
-         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED > /dev/null
+         if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED 2>/dev/null; then
+             echo "$DATE ⚠ Error: Failed to set fan speed. Enabling stock Dell fan control." >> $LOG_FILE
+             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+             exit 1
+         fi
          echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
       else
          # Log based on LOG_FREQUENCY or if DEBUG is enabled

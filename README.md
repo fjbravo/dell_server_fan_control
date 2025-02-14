@@ -59,8 +59,7 @@ HYST_COOLING="4"            # Degrees decrease needed before slowing down fans
 ```bash
 LOOP_TIME="10"              # How often to check temperatures (in seconds)
 LOG_FREQUENCY="6"           # How often to log when system is stable (in cycles)
-LOG_FILE="/var/log/fan_control.log"  # Log file location
-CLEAR_LOG="y"              # Clear log on service start (y/n)
+LOG_FILE="/var/log/fan_control.log"  # Base log file location (timestamped files will be created)
 DEBUG="n"                  # Enable verbose logging (y/n)
 ```
 
@@ -72,12 +71,20 @@ The service automatically reloads the configuration every 60 seconds. You can mo
 
 ### Monitoring Commands
 ```bash
-# View real-time fan control logs
-sudo tail -f /var/log/fan_control.log
+# View fan control logs
+sudo tail -f /var/log/latest_fan_control.log     # Follow latest log in real-time
+ls -l /var/log/fan_control_*.log                 # List all historical logs
+sudo cat /var/log/fan_control_20240213_*.log     # View specific day's logs
 
-# View service logs
-sudo journalctl -fu dell_ipmi_fan_control    # Follow logs in real-time
-sudo journalctl -u dell_ipmi_fan_control     # Show all logs
+# View logs with timestamps
+sudo tail -f /var/log/latest_fan_control.log | while read line; do echo "$(date): $line"; done
+
+# View service logs (systemd)
+sudo journalctl -u dell_ipmi_fan_control         # Show all logs
+sudo journalctl -fu dell_ipmi_fan_control        # Follow logs in real-time
+sudo journalctl -u dell_ipmi_fan_control -b      # Show logs since last boot
+sudo journalctl -u dell_ipmi_fan_control -n 50   # Show last 50 lines
+sudo journalctl -u dell_ipmi_fan_control --output=short-precise  # Show detailed timestamps
 
 # Check service status
 sudo systemctl status dell_ipmi_fan_control
