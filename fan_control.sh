@@ -217,6 +217,22 @@ GPU_T_OLD=0
 BASE_FAN_PERCENT=$FAN_MIN
 GPU_EXTRA_PERCENT=0
 
+# Function to set fan speed for all fans at once
+set_all_fans_speed() {
+    local speed="$1"
+    local hex_speed=$(printf '0x%02x' $speed)
+    
+    # Sleep for 1 second before sending IPMI command
+    sleep 1
+    
+    # Set speed for all fans with a single command
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xFF $hex_speed 2>/dev/null; then
+        echo "$DATE ⚠ Error: Failed to set all fans speed to $speed%" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Function to set fan speed for specific fans
 set_fan_speed() {
     local fan_list="$1"
@@ -225,6 +241,9 @@ set_fan_speed() {
     
     # Convert fan speed to hexadecimal
     local hex_speed=$(printf '0x%02x' $speed)
+    
+    # Sleep for 1 second before sending IPMI command
+    sleep 1
     
     # Set speed for each fan in the list
     IFS=',' read -ra FANS <<< "$fan_list"
@@ -258,10 +277,6 @@ calculate_fan_speed() {
     echo "$fan_percent"
 }
 
-# Function to get all fan numbers (1-6 for Dell servers)
-get_all_fans() {
-    echo "1,2,3,4,5,6"
-}
 
 # Function to validate configuration
 validate_config() {
@@ -507,9 +522,8 @@ while true; do
             CONTROL=$(( CONTROL + 1 ))
          fi
          
-         # Set base speed for all fans
-         ALL_FANS=$(get_all_fans)
-         if ! set_fan_speed "$ALL_FANS" "$BASE_FAN_PERCENT"; then
+         # Set base speed for all fans with a single command
+         if ! set_all_fans_speed "$BASE_FAN_PERCENT"; then
              echo "$DATE ⚠ Error: Failed to set base fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
              /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
              exit 1
