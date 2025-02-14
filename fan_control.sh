@@ -264,15 +264,21 @@ calculate_fan_speed() {
     local temp="$1"
     local min_temp="$2"
     local max_temp="$3"
+    local apply_min="${4:-y}"  # Optional parameter to apply FAN_MIN limit, defaults to "y"
     
     # Calculate percentage based on temperature range (linear interpolation)
     local fan_percent=`echo "$temp" "$min_temp" "$max_temp" | awk '{printf "%d\n", (($1-$2)/($3-$2))*100}'`
     
     # Apply fan speed limits
-    if [ "$fan_percent" -lt "$FAN_MIN" ]; then
+    if [ "$apply_min" = "y" ] && [ "$fan_percent" -lt "$FAN_MIN" ]; then
         fan_percent="$FAN_MIN"
-    elif [ "$fan_percent" -gt 100 ]; then
+    fi
+    
+    # Always ensure fan speed is between 0 and 100
+    if [ "$fan_percent" -gt 100 ]; then
         fan_percent="100"
+    elif [ "$fan_percent" -lt 0 ]; then
+        fan_percent="0"
     fi
     
     echo "$fan_percent"
@@ -528,14 +534,15 @@ while true; do
          BASE_FAN_PERCENT=$(calculate_fan_speed "$CPU_T" "$CPU_MIN_TEMP" "$CPU_MAX_TEMP")
          
          # Calculate GPU fan speed and determine if extra cooling is needed
-         local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP")
+         local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP" "n")
          [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Calculated required GPU fan speed: ${gpu_required_percent}%" >> $LOG_FILE
          
          # Always calculate extra cooling based on GPU temperature
          if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling" >> $LOG_FILE
-            GPU_EXTRA_PERCENT=$((gpu_required_percent - FAN_MIN))
-            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Initial extra cooling calculation: ${gpu_required_percent}% - ${FAN_MIN}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+            # Calculate extra cooling as the difference between required and base
+            GPU_EXTRA_PERCENT=$((gpu_required_percent - BASE_FAN_PERCENT))
+            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Initial extra cooling calculation: ${gpu_required_percent}% - ${BASE_FAN_PERCENT}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
             
             # Ensure extra cooling is at least 0
             if [ "$GPU_EXTRA_PERCENT" -lt 0 ]; then
@@ -569,8 +576,9 @@ while true; do
              local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
              if [ "$gpu_final_percent" -gt 100 ]; then
                 gpu_final_percent=100
-             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting GPU fans (${GPU_FANS}) to ${gpu_final_percent}% (base ${BASE_FAN_PERCENT}% + extra ${GPU_EXTRA_PERCENT}%)" >> $LOG_FILE
              fi
+             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting GPU fans (${GPU_FANS}) to ${gpu_final_percent}% (base ${BASE_FAN_PERCENT}% + extra ${GPU_EXTRA_PERCENT}%)" >> $LOG_FILE
+             
              if ! set_fan_speed "$GPU_FANS" "$gpu_final_percent"; then
                  echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
                  /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
