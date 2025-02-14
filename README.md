@@ -15,13 +15,22 @@ If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15
 
 Installation:
 
-To install the application, run:
+To install the standard version (CPU monitoring only), run:
 
 ```bash
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
 ```
 
-Note: Ensure IPMI is enabled in your iDRAC settings before installation.
+To install the version with GPU temperature monitoring, run:
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring/install.sh)"
+```
+
+Notes: 
+- Ensure IPMI is enabled in your iDRAC settings before installation
+- For GPU monitoring, ensure NVIDIA drivers are installed and nvidia-smi is available
+- The GPU monitoring version requires additional configuration (see GPU Settings below)
 
 The installation script will:
 - Install required dependencies (lm-sensors and ipmitool)
@@ -45,10 +54,19 @@ IDRAC_PASSWORD="calvin"      # iDRAC password
 # Minimum fan speed (percentage)
 FAN_MIN="12"                 # Fans will never go below this speed
 
-# Temperature thresholds (in Celsius)
-MIN_TEMP="40"               # Temperature at which fans start ramping up
-MAX_TEMP="80"               # Temperature at which fans reach 100%
-TEMP_FAIL_THRESHOLD="83"    # Emergency shutdown temperature
+# CPU Temperature Settings
+CPU_MIN_TEMP="40"           # Temperature at which CPU fans start ramping up
+CPU_MAX_TEMP="80"           # Temperature at which CPU fans reach 100%
+CPU_TEMP_FAIL_THRESHOLD="83" # Emergency shutdown temperature for CPU
+
+# GPU Temperature Settings (only in GPU monitoring version)
+GPU_MIN_TEMP="30"           # Temperature at which GPU fans start ramping up
+GPU_MAX_TEMP="85"           # Temperature at which GPU fans reach 100%
+GPU_TEMP_FAIL_THRESHOLD="90" # Emergency shutdown temperature for GPU
+
+# Fan Zone Settings (only in GPU monitoring version)
+GPU_FANS="1,2"             # Comma-separated list of fans near the GPU (e.g., "1,2")
+CPU_FANS="3,4,5,6"         # Comma-separated list of fans for CPU cooling
 
 # Hysteresis settings (prevents rapid fan speed changes)
 HYST_WARMING="3"            # Degrees increase needed before speeding up fans
@@ -95,9 +113,33 @@ sudo systemctl start dell_ipmi_fan_control    # Start the service
 sudo systemctl restart dell_ipmi_fan_control  # Restart the service
 ```
 
+### GPU Temperature Monitoring
+The GPU monitoring version provides intelligent fan control that considers both CPU and GPU temperatures:
+
+1. Base Fan Speed:
+   - All fans respond to CPU temperature as a baseline
+   - This ensures proper cooling for the entire system
+   - Base speed is calculated using CPU_MIN_TEMP and CPU_MAX_TEMP
+
+2. GPU-Specific Cooling:
+   - If GPU temperature requires higher fan speeds than the CPU-based baseline:
+     * Only the GPU-designated fans (GPU_FANS) get an extra speed boost
+     * Extra speed = GPU required speed - CPU baseline speed
+   - When GPU temperature is under control:
+     * GPU fans run at the same speed as other fans
+     * No extra power or noise when not needed
+
+Example Scenario:
+- CPU temperature requires 40% fan speed
+- GPU temperature requires 60% fan speed
+- Result:
+  * All fans run at 40% (base speed from CPU temp)
+  * GPU fans get additional 20% (running at 60%)
+  * When GPU cools down, GPU fans return to base speed
+
 ### Log Messages
 The log file shows different types of messages:
-- ✓ Normal operation (e.g., "System stable - Temp: 45°C, Fan: 35%")
+- ✓ Normal operation (e.g., "System stable - CPU Temp: 45°C (All Fans: 35%), GPU Temp: 55°C (GPU Fans: +10% = 45%)")
 - ⚡ Changes detected (e.g., "Temperature change detected")
 - ↑↓ Fan speed adjustments
 - ⚠ Warnings and critical events
