@@ -265,9 +265,20 @@ calculate_fan_speed() {
     local min_temp="$2"
     local max_temp="$3"
     local apply_min="${4:-y}"  # Optional parameter to apply FAN_MIN limit, defaults to "y"
+    local fan_percent
     
     # Calculate percentage based on temperature range (linear interpolation)
-    local fan_percent=`echo "$temp" "$min_temp" "$max_temp" | awk '{printf "%d\n", (($1-$2)/($3-$2))*100}'`
+    # First check if we're within the temperature range
+    if [ "$temp" -le "$min_temp" ]; then
+        fan_percent=0
+    elif [ "$temp" -ge "$max_temp" ]; then
+        fan_percent=100
+    else
+        # Calculate using expr for integer arithmetic
+        local range=$((max_temp - min_temp))
+        local temp_diff=$((temp - min_temp))
+        fan_percent=$((temp_diff * 100 / range))
+    fi
     
     # Apply fan speed limits
     if [ "$apply_min" = "y" ] && [ "$fan_percent" -lt "$FAN_MIN" ]; then
@@ -533,21 +544,21 @@ while true; do
          # Calculate base fan speed from CPU temperature (applies to all fans)
          BASE_FAN_PERCENT=$(calculate_fan_speed "$CPU_T" "$CPU_MIN_TEMP" "$CPU_MAX_TEMP")
          
-         # Calculate GPU fan speed and determine if extra cooling is needed
+         # Calculate GPU fan speed without applying FAN_MIN limit
          local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP" "n")
-         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Calculated required GPU fan speed: ${gpu_required_percent}%" >> $LOG_FILE
+         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Raw GPU fan speed calculation: ${gpu_required_percent}% (temp: ${GPU_T}°C, range: ${GPU_MIN_TEMP}°C-${GPU_MAX_TEMP}°C)" >> $LOG_FILE
          
-         # Always calculate extra cooling based on GPU temperature
+         # Calculate extra cooling needed for GPU
          if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling" >> $LOG_FILE
-            # Calculate extra cooling as the difference between required and base
-            GPU_EXTRA_PERCENT=$((gpu_required_percent - BASE_FAN_PERCENT))
-            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Initial extra cooling calculation: ${gpu_required_percent}% - ${BASE_FAN_PERCENT}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
             
-            # Ensure extra cooling is at least 0
-            if [ "$GPU_EXTRA_PERCENT" -lt 0 ]; then
-               [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Extra cooling was negative, setting to 0%" >> $LOG_FILE
-               GPU_EXTRA_PERCENT=0
+            # If GPU needs more cooling than base fan speed provides, add the difference
+            if [ "$gpu_required_percent" -gt "$BASE_FAN_PERCENT" ]; then
+                GPU_EXTRA_PERCENT=$((gpu_required_percent - BASE_FAN_PERCENT))
+                [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Extra cooling needed: ${gpu_required_percent}% - ${BASE_FAN_PERCENT}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+            else
+                [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Base fan speed ${BASE_FAN_PERCENT}% is sufficient (required: ${gpu_required_percent}%)" >> $LOG_FILE
+                GPU_EXTRA_PERCENT=0
             fi
          else
             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C <= min temp ${GPU_MIN_TEMP}°C, no extra cooling needed" >> $LOG_FILE
