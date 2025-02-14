@@ -111,11 +111,11 @@ backup_existing() {
     echo "Step 4: Processing existing installation..."
     if [ "$IS_UPDATE" = true ]; then
         echo "Creating backup..."
-        mkdir -p "$BACKUP_DIR/scripts"
+        mkdir -p "$BACKUP_DIR"
         
         # Backup all files from install directory
         if [ -d "$INSTALL_DIR" ]; then
-            cp "$INSTALL_DIR"/* "$BACKUP_DIR/scripts/" 2>/dev/null || true
+            cp "$INSTALL_DIR"/* "$BACKUP_DIR/" 2>/dev/null || true
             echo "- Backed up all files from $INSTALL_DIR"
         fi
         
@@ -146,13 +146,9 @@ install_files() {
     if [ "$IS_UPDATE" = true ]; then
         echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
-            echo "- Preserving existing configuration"
-            # Save current config as template
-            cp "$INSTALL_DIR/config.env" "$INSTALL_DIR/config.template.env"
-            echo "- Current config saved as template: $INSTALL_DIR/config.template.env"
             # Save new config for reference
-            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.env.new"
-            echo "- New default config saved as: $INSTALL_DIR/config.env.new"
+            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
+            echo "- New default config saved as: $INSTALL_DIR/config.template.env"
             echo "  Compare with your existing config and update manually if needed"
         else
             echo "! No existing config found, creating from downloaded config..."
