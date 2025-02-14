@@ -263,9 +263,8 @@ calculate_fan_speed() {
     local min_temp="$2"
     local max_temp="$3"
     
-    local fan_cur="$(( temp - min_temp ))"
-    local fan_max="$(( max_temp - min_temp ))"
-    local fan_percent=`echo "$fan_max" "$fan_cur" | awk '{printf "%d\n", ($2/$1)*100}'`
+    # Calculate percentage based on temperature range (linear interpolation)
+    local fan_percent=`echo "$temp" "$min_temp" "$max_temp" | awk '{printf "%d\n", (($1-$2)/($3-$2))*100}'`
     
     # Apply fan speed limits
     if [ "$fan_percent" -lt "$FAN_MIN" ]; then
