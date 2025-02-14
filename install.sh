@@ -7,7 +7,7 @@ INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
 TEMP_DIR="/tmp/dell-fan-control-install"
-REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main"
+REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring"
 IS_UPDATE=false
 TEMP_SETTINGS=""
 
@@ -71,7 +71,7 @@ download_files() {
     cd "$TEMP_DIR" || exit 1
     
     # Download required files
-    for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service config.env; do
+    for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service config.template.env; do
         echo "- Downloading $file..."
         if ! curl -L -o "$file" "$REPO_URL/$file"; then
             echo "Error: Failed to download $file from $REPO_URL/$file"
@@ -148,19 +148,19 @@ install_files() {
         echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
             echo "- Preserving existing configuration"
-            # Save new config as template
-            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
+            # Save new config template
+            cp "$TEMP_DIR/config.template.env" "$INSTALL_DIR/config.template.env"
             echo "- New default config template saved as: $INSTALL_DIR/config.template.env"
             echo "  Compare with your existing config and update manually if needed"
         else
-            echo "! No existing config found, installing default configuration..."
-            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
+            echo "! No existing config found, creating from template..."
+            cp "$TEMP_DIR/config.template.env" "$INSTALL_DIR/config.env"
+            cp "$TEMP_DIR/config.template.env" "$INSTALL_DIR/config.template.env"
         fi
     else
-        echo "Installing default configuration..."
-        cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
-        # Also save as template for future reference
-        cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
+        echo "Creating configuration from template..."
+        cp "$TEMP_DIR/config.template.env" "$INSTALL_DIR/config.env"
+        cp "$TEMP_DIR/config.template.env" "$INSTALL_DIR/config.template.env"
         echo "- Default configuration installed"
         echo "- Please edit $INSTALL_DIR/config.env to set your iDRAC credentials and preferences"
     fi
