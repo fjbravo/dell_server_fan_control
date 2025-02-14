@@ -185,29 +185,38 @@ if ! check_ipmi; then
     exit 1
 fi
 
-# Get highest temp of any cpu package.
-T_CHECK=$(get_cpu_temp)
+# Get initial CPU temperature
+CPU_T=$(get_cpu_temp)
 if [ $? -ne 0 ]; then
-    echo "$DATE ⚠ Error: Temperature check failed. Enabling stock Dell fan control." >> $LOG_FILE
+    echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
     /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
     exit 1
 fi
-# Ensure we have a value returned between 0 and 100.
-if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
+
+# Get initial GPU temperature (non-fatal if it fails)
+GPU_T=$(get_gpu_temp)
+if [ $? -ne 0 ]; then
+    echo "$DATE ⚠ Warning: Failed to read GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
+    GPU_T=$CPU_T
+fi
+
+# Ensure we have valid temperature readings
+if [ "$CPU_T" -ge 1 ] && [ "$CPU_T" -le 99 ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
    # Enable manual fan control and set fan PWM % via ipmitool
-   echo "$DATE--> We seem to be getting valid temps from sensors! Enabling manual fan control"  >> $LOG_FILE
-   /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
-   echo "$DATE--> Enabled dynamic fan control" >> $LOG_FILE
-   # If some error happens, go back do Dell Control
-   else
-   echo "$DATE--> Somethings not right. No valid data from sensors. Enabling stock Dell fan control and quitting." >> $LOG_FILE
+   echo "$DATE ✓ Valid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling manual fan control." >> $LOG_FILE
+   /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
+   echo "$DATE ✓ Enabled dynamic fan control" >> $LOG_FILE
+else
+   echo "$DATE ⚠ Error: Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control." >> $LOG_FILE
    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
    exit 0
-   fi
+fi
 
 # Initialize variables
-T_OLD=0
-FAN_PERCENT=$FAN_MIN
+CPU_T_OLD=0
+GPU_T_OLD=0
+BASE_FAN_PERCENT=$FAN_MIN
+GPU_EXTRA_PERCENT=0
 
 # Function to set fan speed for specific fans
 set_fan_speed() {
