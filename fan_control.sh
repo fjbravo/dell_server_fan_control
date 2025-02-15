@@ -154,6 +154,49 @@ get_cpu_temp() {
     return 0
 }
 
+# Function to get GPU temperature
+get_gpu_temp() {
+    # Check if nvidia-smi exists
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        echo "Error: 'nvidia-smi' command not found. Please install NVIDIA drivers." >&2
+        return 1
+    fi
+
+    # Get GPU temperature
+    local temp
+    temp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null)
+    
+    # Check if we got a valid temperature reading
+    if [ -z "$temp" ] || ! [[ "$temp" =~ ^[0-9]+$ ]]; then
+        echo "Error: Could not read GPU temperature. Check if NVIDIA GPU is present and drivers are loaded." >&2
+        return 1
+    fi
+    
+    echo "$temp"
+    return 0
+}
+
+# Function to set fan speed for specific fans
+set_fan_speed() {
+    local fan_ids="$1"
+    local speed="$2"
+    local success=0
+    
+    # Convert speed to hexadecimal
+    local hex_speed=$(printf '0x%02x' "$speed")
+    
+    # Set speed for each fan ID
+    IFS=',' read -ra FAN_ARRAY <<< "$fan_ids"
+    for fan_id in "${FAN_ARRAY[@]}"; do
+        if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 "$fan_id" "$hex_speed" 2>/dev/null; then
+            echo "$DATE ⚠ Error: Failed to set fan $fan_id speed to $speed%" >&2
+            success=1
+        fi
+    done
+    
+    return $success
+}
+
 # Check IPMI connectivity first
 if ! check_ipmi; then
     exit 1
@@ -181,7 +224,10 @@ if [ " $T_CHECK" -ge 1 ] && [ "$T_CHECK" -le 99 ]; then
 
 # Initialize variables
 T_OLD=0
+GPU_T_OLD=0
 FAN_PERCENT=$FAN_MIN
+GPU_FAN_PERCENT=$FAN_MIN
+CONTROL=0  # Initialize control counter for manual control verification
 
 # Function to validate configuration
 validate_config() {
@@ -242,6 +288,50 @@ validate_config() {
     if ! [[ "$IDRAC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "$DATE ⚠ Error: IDRAC_IP must be a valid IP address" >&2
         error_found=1
+    fi
+    
+    # Validate GPU settings if GPU monitoring is enabled
+    if [ "$GPU_MONITORING" = "y" ]; then
+        # Check if all GPU variables are set
+        local gpu_vars=(
+            "GPU_MIN_TEMP" "GPU_MAX_TEMP" "GPU_FAIL_THRESHOLD"  # Temperature settings
+            "GPU_HYST_WARMING" "GPU_HYST_COOLING"  # Hysteresis settings
+            "GPU_FAN_IDS"  # Fan IDs
+        )
+        
+        for var in "${gpu_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+                echo "$DATE ⚠ Error: Required GPU variable $var is not set" >&2
+                error_found=1
+            fi
+        done
+        
+        # Validate GPU temperature ranges
+        if ! [[ "$GPU_MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MIN_TEMP" -lt 0 ] || [ "$GPU_MIN_TEMP" -gt 100 ]; then
+            echo "$DATE ⚠ Error: GPU_MIN_TEMP must be between 0 and 100" >&2
+            error_found=1
+        fi
+        
+        if ! [[ "$GPU_MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MAX_TEMP" -lt 0 ] || [ "$GPU_MAX_TEMP" -gt 100 ]; then
+            echo "$DATE ⚠ Error: GPU_MAX_TEMP must be between 0 and 100" >&2
+            error_found=1
+        fi
+        
+        if [ "$GPU_MIN_TEMP" -ge "$GPU_MAX_TEMP" ]; then
+            echo "$DATE ⚠ Error: GPU_MIN_TEMP must be less than GPU_MAX_TEMP" >&2
+            error_found=1
+        fi
+        
+        if [ "$GPU_FAIL_THRESHOLD" -le "$GPU_MAX_TEMP" ]; then
+            echo "$DATE ⚠ Error: GPU_FAIL_THRESHOLD must be greater than GPU_MAX_TEMP" >&2
+            error_found=1
+        fi
+        
+        # Validate GPU fan IDs format (comma-separated numbers)
+        if ! [[ "$GPU_FAN_IDS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+            echo "$DATE ⚠ Error: GPU_FAN_IDS must be comma-separated numbers" >&2
+            error_found=1
+        fi
     fi
     
     return $error_found
@@ -331,30 +421,38 @@ while true; do
    # Get highest CPU package temperature from all CPU sensors
    T=$(get_cpu_temp)
    if [ $? -ne 0 ]; then
-       echo "$DATE ⚠ Error: Failed to read temperature. Enabling stock Dell fan control." >> $LOG_FILE
+       echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
        /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
        exit 1
    fi
    
-   # Validate temperature reading (must be between 1-99°C)
+   # Get GPU temperature if GPU monitoring is enabled
+   if [ "$GPU_MONITORING" = "y" ]; then
+       GPU_T=$(get_gpu_temp)
+       if [ $? -ne 0 ]; then
+           echo "$DATE ⚠ Warning: Failed to read GPU temperature. Disabling GPU monitoring." >> $LOG_FILE
+           GPU_MONITORING="n"
+       fi
+   fi
+   
+   # Validate CPU temperature reading (must be between 1-99°C)
    if [ "$T" -ge 1 ] && [ "$T" -le 99 ]; then
-      # Check for critical temperature threshold
+      # Check for critical CPU temperature threshold
       if [ "$T" -ge $TEMP_FAIL_THRESHOLD ]; then
          # Emergency shutdown if temperature exceeds safe threshold
-         echo "$DATE ⚠ CRITICAL!!!! Temperature ${T}°C exceeds shutdown threshold of ${TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
+         echo "$DATE ⚠ CRITICAL!!!! CPU Temperature ${T}°C exceeds shutdown threshold of ${TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
          echo "$DATE ⚠ INITIATING EMERGENCY SHUTDOWN" >> $LOG_FILE
          /usr/sbin/shutdown now
          exit 0
       fi
       
-      # Check if temperature change exceeds hysteresis thresholds
-      # Only adjust fans if temp has changed significantly to prevent constant adjustments
-      if [ $((T_OLD-T)) -ge $HYST_COOLING ]  || [ $((T-T_OLD)) -ge $HYST_WARMING ]; then
-         echo "$DATE ⚡ Temperature change detected (${T}°C)" >> $LOG_FILE
+      # Check if CPU temperature change exceeds hysteresis thresholds
+      if [ $((T_OLD-T)) -ge $HYST_COOLING ] || [ $((T-T_OLD)) -ge $HYST_WARMING ]; then
+         echo "$DATE ⚡ CPU Temperature change detected (${T}°C)" >> $LOG_FILE
          # Update last temperature for future comparisons
          T_OLD=$T
          
-         # Calculate required fan speed
+         # Calculate required fan speed for CPU
          FAN_CUR="$(( T - MIN_TEMP ))"
          FAN_MAX="$(( MAX_TEMP - MIN_TEMP ))"
          FAN_PERCENT=`echo "$FAN_MAX" "$FAN_CUR" | awk '{printf "%d\n", ($2/$1)*100}'`
@@ -368,35 +466,80 @@ while true; do
             FAN_PERCENT="100"
          fi
          
-         # Periodic manual control check (every 10 cycles)
-         if [ "$CONTROL" -eq 10 ]; then
-            CONTROL=0
-            /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
-            echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
-         else
-            CONTROL=$(( CONTROL + 1 ))
-         fi
-         
-         # Apply fan speed
+         # Apply CPU fan speed to all fans
          HEXADECIMAL_FAN_SPEED=$(printf '0x%02x' $FAN_PERCENT)
          if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xff $HEXADECIMAL_FAN_SPEED 2>/dev/null; then
              echo "$DATE ⚠ Error: Failed to set fan speed. Enabling stock Dell fan control." >> $LOG_FILE
              /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
              exit 1
          fi
-         echo "$DATE ✓ Updated - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
+         echo "$DATE ✓ Updated CPU fans - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
+      fi
+      
+      # Handle GPU temperature if GPU monitoring is enabled
+      if [ "$GPU_MONITORING" = "y" ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
+         # Check for critical GPU temperature threshold
+         if [ "$GPU_T" -ge $GPU_FAIL_THRESHOLD ]; then
+            echo "$DATE ⚠ CRITICAL!!!! GPU Temperature ${GPU_T}°C exceeds shutdown threshold of ${GPU_FAIL_THRESHOLD}°C" >> $LOG_FILE
+            echo "$DATE ⚠ INITIATING EMERGENCY SHUTDOWN" >> $LOG_FILE
+            /usr/sbin/shutdown now
+            exit 0
+         fi
+         
+         # Check if GPU temperature change exceeds hysteresis thresholds
+         if [ $((GPU_T_OLD-GPU_T)) -ge $GPU_HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $GPU_HYST_WARMING ]; then
+            echo "$DATE ⚡ GPU Temperature change detected (${GPU_T}°C)" >> $LOG_FILE
+            # Update last GPU temperature for future comparisons
+            GPU_T_OLD=$GPU_T
+            
+            # Calculate required fan speed for GPU
+            GPU_FAN_CUR="$(( GPU_T - GPU_MIN_TEMP ))"
+            GPU_FAN_MAX="$(( GPU_MAX_TEMP - GPU_MIN_TEMP ))"
+            GPU_FAN_PERCENT=`echo "$GPU_FAN_MAX" "$GPU_FAN_CUR" | awk '{printf "%d\n", ($2/$1)*100}'`
+            
+            # Apply fan speed limits
+            if [ "$GPU_FAN_PERCENT" -lt "$FAN_MIN" ]; then
+               echo "$DATE ↑ Setting minimum GPU fan speed: ${FAN_MIN}%" >> $LOG_FILE
+               GPU_FAN_PERCENT="$FAN_MIN"
+            elif [ "$GPU_FAN_PERCENT" -gt 100 ]; then
+               echo "$DATE ↓ Capping at maximum GPU fan speed: 100%" >> $LOG_FILE
+               GPU_FAN_PERCENT="100"
+            fi
+            
+            # Apply GPU fan speed to GPU-specific fans
+            if ! set_fan_speed "$GPU_FAN_IDS" "$GPU_FAN_PERCENT"; then
+                echo "$DATE ⚠ Error: Failed to set GPU fan speed. Continuing with CPU-only control." >> $LOG_FILE
+                GPU_MONITORING="n"
+            else
+                echo "$DATE ✓ Updated GPU fans - Temp: ${GPU_T}°C, Fan: ${GPU_FAN_PERCENT}%" >> $LOG_FILE
+            fi
+         fi
+      fi
+      
+      # Periodic manual control check (every 10 cycles)
+      if [ "$CONTROL" -eq 10 ]; then
+         CONTROL=0
+         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00  > /dev/null
+         echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
       else
-         # Log based on LOG_FREQUENCY or if DEBUG is enabled
-         if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
-            echo "$DATE ✓ System stable - Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
+         CONTROL=$(( CONTROL + 1 ))
+      fi
+      
+      # Log system status based on LOG_FREQUENCY or if DEBUG is enabled
+      if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
+         if [ "$GPU_MONITORING" = "y" ]; then
+            echo "$DATE ✓ System stable - CPU Temp: ${T}°C, CPU Fan: ${FAN_PERCENT}%, GPU Temp: ${GPU_T}°C, GPU Fan: ${GPU_FAN_PERCENT}%" >> $LOG_FILE
+         else
+            echo "$DATE ✓ System stable - CPU Temp: ${T}°C, Fan: ${FAN_PERCENT}%" >> $LOG_FILE
          fi
       fi
    else
-      # Error handling: Invalid temperature reading
-      echo "$DATE ⚠ Error: Invalid temperature reading (${T}°C). Reverting to stock Dell fan control" >> $LOG_FILE
+      # Error handling: Invalid CPU temperature reading
+      echo "$DATE ⚠ Error: Invalid CPU temperature reading (${T}°C). Reverting to stock Dell fan control" >> $LOG_FILE
       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
       exit 0
    fi
+   
    #end loop, and sleep for how ever many seconds LOOP_TIME is set to above.
    sleep $LOOP_TIME;
-   done
+done
