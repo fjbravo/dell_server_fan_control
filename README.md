@@ -1,27 +1,45 @@
 # dell_server_fan_control
-Simple linux bash scripts to get the highest CPU temperature from lm-sensors, and set the fan speed according to user settings via ipmitool.
+Linux bash scripts to control Dell server fans based on CPU and GPU temperatures using lm-sensors and nvidia-smi, with fan speed control via ipmitool.
 
 Disclaimer: I am not responsible for what this does to your hardware. It is entirely your responsibility to monitor what is going on with your hardware. Use at your own risk.
 
-I made this to run on my proxmox server, which runs Debian. YMMV. My used Poweredge R730xd came with a bad motherboard. After replacing with a used motherboard from eBay, I found that board would not increase the fan speed when cpu temps were hight. It could hit thermal throttle with no increase in fan speed. 
+## Features
 
-Instead of setting the fans to a constant speed (creating too much noise, and increasing power draw for no reason), I wrote this script that figures out what percentage the fans should be based on CPU temps and user settings. 
+### CPU Temperature Control
+- Dynamic fan speed control based on CPU temperature
+- Configurable minimum and maximum temperature thresholds
+- Hysteresis to prevent rapid fan speed changes
+- Emergency shutdown protection
+- Minimum fan speed setting
 
-I've seen other scripts out there, and while they do work, many send unnecessary commands, have limited ranges for fan speed, don't have hystoresis, or were simply not designed to control a system's fan speeds entirely.
+### GPU Temperature Control (New!)
+- NVIDIA GPU temperature monitoring via nvidia-smi
+- Independent control of GPU-specific fans (default: fans 5 and 6)
+- Separate temperature thresholds and hysteresis settings for GPU
+- Automatic detection of NVIDIA GPUs
+- Can run with or without GPU monitoring enabled
 
-With the main fan control script, simply set the MIN_TEMP to where the fan speed should be 0%. Set MAX_TEMP where the fan should be 100% and FAN_MIN to the bare minimum fan speed if you would like them not to go below a certain PWM percentage. Set the hysteresis options, other described variables and follow below.
+### General Features
+- Efficient IPMI commands to minimize system impact
+- Dynamic configuration reloading
+- Detailed logging with different message types
+- Systemd service integration
+- Easy installation and configuration
 
-If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15 until the calculated fan speed exceeds 15%. This means you won't see an increase in fan speeds until somewhere above 4x or 5x degrees depending on all 3 variables. You may have to play around with values to find the ranges you are looking for.
+## Background
+This script was originally created for a Proxmox server running on a Dell PowerEdge R730xd with a replacement motherboard that had issues with fan control. Instead of setting fans to a constant speed (creating unnecessary noise and power consumption), this script dynamically adjusts fan speeds based on temperature readings.
 
-Installation:
+## Installation
 
-To install the application, run:
+To install the application with GPU monitoring support, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/gpu-monitoring/install.sh)"
 ```
 
-Note: Ensure IPMI is enabled in your iDRAC settings before installation.
+Prerequisites:
+- IPMI must be enabled in your iDRAC settings
+- For GPU monitoring: NVIDIA drivers must be installed
 
 The installation script will:
 - Install required dependencies (lm-sensors and ipmitool)
@@ -40,7 +58,7 @@ IDRAC_USER="root"            # iDRAC username
 IDRAC_PASSWORD="calvin"      # iDRAC password
 ```
 
-### Temperature Control Settings
+### CPU Temperature Control Settings
 ```bash
 # Minimum fan speed (percentage)
 FAN_MIN="12"                 # Fans will never go below this speed
@@ -53,6 +71,24 @@ TEMP_FAIL_THRESHOLD="83"    # Emergency shutdown temperature
 # Hysteresis settings (prevents rapid fan speed changes)
 HYST_WARMING="3"            # Degrees increase needed before speeding up fans
 HYST_COOLING="4"            # Degrees decrease needed before slowing down fans
+```
+
+### GPU Temperature Control Settings
+```bash
+# Enable/disable GPU monitoring
+GPU_MONITORING="y"          # Set to "n" to disable GPU monitoring
+
+# GPU temperature thresholds (in Celsius)
+GPU_MIN_TEMP="30"          # Temperature at which GPU fans start ramping up
+GPU_MAX_TEMP="75"          # Temperature at which GPU fans reach 100%
+GPU_FAIL_THRESHOLD="90"    # Emergency shutdown temperature
+
+# GPU hysteresis settings
+GPU_HYST_WARMING="2"       # Degrees increase needed before speeding up fans
+GPU_HYST_COOLING="3"       # Degrees decrease needed before slowing down fans
+
+# Fan assignment
+GPU_FAN_IDS="5,6"         # Comma-separated list of fan IDs for GPU cooling
 ```
 
 ### Monitoring Settings
@@ -97,8 +133,20 @@ sudo systemctl restart dell_ipmi_fan_control  # Restart the service
 
 ### Log Messages
 The log file shows different types of messages:
-- ✓ Normal operation (e.g., "System stable - Temp: 45°C, Fan: 35%")
-- ⚡ Changes detected (e.g., "Temperature change detected")
+- ✓ Normal operation
+  * CPU only: "System stable - CPU Temp: 45°C, Fan: 35%"
+  * With GPU: "System stable - CPU Temp: 45°C, CPU Fan: 35%, GPU Temp: 65°C, GPU Fan: 75%"
+- ⚡ Changes detected
+  * "CPU Temperature change detected (50°C)"
+  * "GPU Temperature change detected (70°C)"
 - ↑↓ Fan speed adjustments
+  * "Setting minimum fan speed: 12%"
+  * "Setting minimum GPU fan speed: 12%"
 - ⚠ Warnings and critical events
-- ⚙ Configuration changes
+  * "CRITICAL!!!! CPU Temperature 83°C exceeds shutdown threshold"
+  * "CRITICAL!!!! GPU Temperature 90°C exceeds shutdown threshold"
+  * "Failed to read GPU temperature. Disabling GPU monitoring."
+- ⚙ Configuration changes and status
+  * "Manual fan control verified"
+  * "Configuration reloaded"
+  * "NVIDIA GPU detected" (during installation)
