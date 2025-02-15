@@ -17,7 +17,10 @@ Disclaimer: I am not responsible for what this does to your hardware. It is enti
 - Independent control of GPU-specific fans (default: fans 5 and 6)
 - Separate temperature thresholds and hysteresis settings for GPU
 - Automatic detection of NVIDIA GPUs
+- Graceful fallback if GPU monitoring fails
+- Automatic enabling/disabling based on GPU presence
 - Can run with or without GPU monitoring enabled
+- Safe initialization and error handling
 
 ### General Features
 - Efficient IPMI commands to minimize system impact
@@ -99,6 +102,23 @@ LOG_FILE="/var/log/fan_control.log"  # Base log file location (timestamped files
 DEBUG="n"                  # Enable verbose logging (y/n)
 ```
 
+### Version History
+
+#### v1.1.0 (2024-02-14)
+- Added GPU temperature monitoring and fan control
+- Added automatic NVIDIA GPU detection
+- Added GPU-specific configuration options
+- Added graceful fallback for GPU monitoring
+- Fixed initialization issues
+- Added comprehensive troubleshooting guide
+- Enhanced error handling and logging
+
+#### v1.0.0
+- Initial release with CPU temperature monitoring
+- Basic fan speed control
+- Dynamic configuration reloading
+- Systemd service integration
+
 ### Dynamic Configuration
 The service automatically reloads the configuration every 60 seconds. You can modify settings while the service is running:
 1. Edit config.env: `sudo nano /usr/local/bin/dell-fan-control/config.env`
@@ -150,3 +170,39 @@ The log file shows different types of messages:
   * "Manual fan control verified"
   * "Configuration reloaded"
   * "NVIDIA GPU detected" (during installation)
+
+### Troubleshooting
+
+#### GPU Monitoring Issues
+1. If GPU monitoring fails:
+   - The script will automatically disable GPU monitoring
+   - CPU fan control will continue to work normally
+   - Check nvidia-smi command manually: `nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits`
+   - Verify NVIDIA drivers are installed: `nvidia-smi -L`
+
+2. To re-enable GPU monitoring after fixing driver issues:
+   - Edit config: `sudo nano /usr/local/bin/dell-fan-control/config.env`
+   - Set `GPU_MONITORING="y"`
+   - Wait for configuration reload (up to 60 seconds)
+
+#### Fan Control
+1. Default GPU fans (5,6) not optimal for your setup:
+   - Check fan layout: `ipmitool sensor list | grep Fan`
+   - Edit `GPU_FAN_IDS` in config.env with appropriate fan numbers
+   - Multiple fans can be specified: e.g., `GPU_FAN_IDS="4,5,6"`
+
+#### Common Issues
+1. "integer expression expected" error:
+   - Fixed in latest version
+   - Reinstall using the installation command to update
+   
+2. GPU temperature not being detected:
+   - Check if GPU is recognized: `lspci | grep -i nvidia`
+   - Verify drivers are loaded: `lsmod | grep nvidia`
+   - Check NVIDIA driver status: `systemctl status nvidia-*`
+
+3. Fan speeds not changing:
+   - Verify iDRAC settings allow fan control
+   - Check iDRAC credentials in config.env
+   - Ensure IPMI over LAN is enabled
+   - Test manual fan control: `ipmitool raw 0x30 0x30 0x01 0x00`
