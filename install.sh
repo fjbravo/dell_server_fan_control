@@ -116,10 +116,9 @@ check_installation() {
     if [ -d "$INSTALL_DIR" ] || [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
         echo "Existing installation found"
         IS_UPDATE=true
-        return 0
     else
         echo "No existing installation found"
-        return 1
+        IS_UPDATE=false
     fi
 }
 
@@ -128,11 +127,11 @@ backup_existing() {
     echo "Step 4: Processing existing installation..."
     if [ "$IS_UPDATE" = true ]; then
         echo "Creating backup..."
-        mkdir -p "$BACKUP_DIR/scripts"
+        mkdir -p "$BACKUP_DIR"
         
         # Backup all files from install directory
         if [ -d "$INSTALL_DIR" ]; then
-            cp "$INSTALL_DIR"/* "$BACKUP_DIR/scripts/" 2>/dev/null || true
+            cp "$INSTALL_DIR"/* "$BACKUP_DIR/" 2>/dev/null || true
             echo "- Backed up all files from $INSTALL_DIR"
         fi
         
@@ -163,57 +162,21 @@ install_files() {
     if [ "$IS_UPDATE" = true ]; then
         echo "Processing configuration..."
         if [ -f "$INSTALL_DIR/config.env" ]; then
-            echo "- Preserving existing configuration"
-            # Save new config as template
+            # Save new config for reference
             cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
-            echo "- New default config template saved as: $INSTALL_DIR/config.template.env"
-            
-            # Check if GPU monitoring settings need to be added
-            if ! grep -q "^GPU_MONITORING=" "$INSTALL_DIR/config.env"; then
-                echo "- Adding GPU monitoring settings to existing config..."
-                {
-                    echo ""
-                    echo "# GPU Settings"
-                    echo "# Enable GPU monitoring (y/n)"
-                    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
-                        echo "GPU_MONITORING=\"y\""
-                    else
-                        echo "GPU_MONITORING=\"n\""
-                    fi
-                    echo "# GPU temperature thresholds (in Celsius)"
-                    echo "GPU_MIN_TEMP=\"30\""
-                    echo "GPU_MAX_TEMP=\"75\""
-                    echo "GPU_FAIL_THRESHOLD=\"90\""
-                    echo "# GPU hysteresis settings (in Celsius)"
-                    echo "GPU_HYST_WARMING=\"2\""
-                    echo "GPU_HYST_COOLING=\"3\""
-                    echo "# Fan IDs for GPU cooling (comma-separated list)"
-                    echo "GPU_FAN_IDS=\"5,6\""
-                } >> "$INSTALL_DIR/config.env"
-            fi
+            echo "- New default config saved as: $INSTALL_DIR/config.template.env"
             echo "  Compare with your existing config and update manually if needed"
         else
-            echo "! No existing config found, installing default configuration..."
-            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
+            echo "! No existing config found, creating from downloaded config..."
+            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.env"
+            cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
         fi
     else
-        echo "Installing default configuration..."
-        cp "$TEMP_DIR/config.env" "$INSTALL_DIR/"
-        # Also save as template for future reference
+        echo "Creating configuration from downloaded config..."
+        cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.env"
         cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
         echo "- Default configuration installed"
         echo "- Please edit $INSTALL_DIR/config.env to set your iDRAC credentials and preferences"
-        
-        # Set initial GPU monitoring state based on NVIDIA driver presence
-        if [ -f "$INSTALL_DIR/config.env" ]; then
-            if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
-                sed -i 's/^GPU_MONITORING="n"/GPU_MONITORING="y"/' "$INSTALL_DIR/config.env"
-                echo "- GPU monitoring enabled (NVIDIA GPU detected)"
-            else
-                sed -i 's/^GPU_MONITORING="y"/GPU_MONITORING="n"/' "$INSTALL_DIR/config.env"
-                echo "- GPU monitoring disabled (no NVIDIA GPU detected)"
-            fi
-        fi
     fi
     
     echo "Files installed successfully"
