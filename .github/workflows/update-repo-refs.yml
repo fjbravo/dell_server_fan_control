@@ -1,0 +1,49 @@
+name: Update Repository References
+
+on:
+  push:
+    branches:
+      - '*'
+    tags-ignore:
+      - '*'
+
+jobs:
+  update-refs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Update repository references
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          REPO_OWNER=$(echo $GITHUB_REPOSITORY | cut -d '/' -f1)
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d '/' -f2)
+          
+          # Update README.md
+          sed -i "s|raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^/]*/|raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH/|g" README.md
+          
+          # Update install.sh
+          sed -i "s|REPO_URL=\"https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^\"]*\"|REPO_URL=\"https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH\"|g" install.sh
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push if changed
+        if: steps.check_changes.outputs.changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add README.md install.sh
+          git commit -m "chore: update repository references to branch ${GITHUB_REF#refs/heads/}"
+          git push
