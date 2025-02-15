@@ -7,7 +7,7 @@ INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
 TEMP_DIR="/tmp/dell-fan-control-install"
-REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main"
+REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/gpu-monitoring"
 IS_UPDATE=false
 TEMP_SETTINGS=""
 
@@ -61,6 +61,22 @@ check_dependencies() {
         echo "Dependencies installation completed"
     else
         echo "All required dependencies are already installed"
+    fi
+    
+    # Check for NVIDIA drivers (optional)
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        echo "- NVIDIA drivers are installed"
+        # Check if GPU is detected
+        if nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
+            echo "  ✓ NVIDIA GPU detected"
+        else
+            echo "  ! NVIDIA drivers installed but no GPU detected"
+            echo "  ! GPU monitoring will be disabled"
+        fi
+    else
+        echo "- NVIDIA drivers not found"
+        echo "  ! GPU monitoring will be disabled"
+        echo "  ! To enable GPU monitoring, install NVIDIA drivers and run this script again"
     fi
 }
 
@@ -151,6 +167,30 @@ install_files() {
             # Save new config as template
             cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
             echo "- New default config template saved as: $INSTALL_DIR/config.template.env"
+            
+            # Check if GPU monitoring settings need to be added
+            if ! grep -q "^GPU_MONITORING=" "$INSTALL_DIR/config.env"; then
+                echo "- Adding GPU monitoring settings to existing config..."
+                {
+                    echo ""
+                    echo "# GPU Settings"
+                    echo "# Enable GPU monitoring (y/n)"
+                    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
+                        echo "GPU_MONITORING=\"y\""
+                    else
+                        echo "GPU_MONITORING=\"n\""
+                    fi
+                    echo "# GPU temperature thresholds (in Celsius)"
+                    echo "GPU_MIN_TEMP=\"30\""
+                    echo "GPU_MAX_TEMP=\"75\""
+                    echo "GPU_FAIL_THRESHOLD=\"90\""
+                    echo "# GPU hysteresis settings (in Celsius)"
+                    echo "GPU_HYST_WARMING=\"2\""
+                    echo "GPU_HYST_COOLING=\"3\""
+                    echo "# Fan IDs for GPU cooling (comma-separated list)"
+                    echo "GPU_FAN_IDS=\"5,6\""
+                } >> "$INSTALL_DIR/config.env"
+            fi
             echo "  Compare with your existing config and update manually if needed"
         else
             echo "! No existing config found, installing default configuration..."
@@ -163,6 +203,17 @@ install_files() {
         cp "$TEMP_DIR/config.env" "$INSTALL_DIR/config.template.env"
         echo "- Default configuration installed"
         echo "- Please edit $INSTALL_DIR/config.env to set your iDRAC credentials and preferences"
+        
+        # Set initial GPU monitoring state based on NVIDIA driver presence
+        if [ -f "$INSTALL_DIR/config.env" ]; then
+            if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
+                sed -i 's/^GPU_MONITORING="n"/GPU_MONITORING="y"/' "$INSTALL_DIR/config.env"
+                echo "- GPU monitoring enabled (NVIDIA GPU detected)"
+            else
+                sed -i 's/^GPU_MONITORING="y"/GPU_MONITORING="n"/' "$INSTALL_DIR/config.env"
+                echo "- GPU monitoring disabled (no NVIDIA GPU detected)"
+            fi
+        fi
     fi
     
     echo "Files installed successfully"
@@ -228,6 +279,10 @@ echo "4. Configuration:"
 echo "   - Files located in: $INSTALL_DIR"
 echo "   - Edit settings: sudo nano $INSTALL_DIR/config.env"
 echo "   - Default template: $INSTALL_DIR/config.template.env"
+echo "   - GPU monitoring settings:"
+echo "     * Enable/disable: GPU_MONITORING=y/n"
+echo "     * Temperature thresholds: GPU_MIN_TEMP, GPU_MAX_TEMP, GPU_FAIL_THRESHOLD"
+echo "     * Fan IDs: GPU_FAN_IDS (comma-separated list, default: 5,6)"
 echo
 echo "5. Service control:"
 echo "   sudo systemctl stop ${SERVICE_NAME}     # Stop the service"
