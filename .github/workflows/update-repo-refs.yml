@@ -1,11 +1,15 @@
 name: Update Repository References
 
+# Workflow triggers only when README.md or install.sh are modified
 on:
   push:
     branches:
       - '*'
     tags-ignore:
       - '*'
+    paths:
+      - 'README.md'
+      - 'install.sh'
 
 jobs:
   update-refs:
