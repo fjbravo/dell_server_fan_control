@@ -32,23 +32,39 @@ Disclaimer: I am not responsible for what this does to your hardware. It is enti
 ## Background
 This script was originally created for a Proxmox server running on a Dell PowerEdge R730xd with a replacement motherboard that had issues with fan control. Instead of setting fans to a constant speed (creating unnecessary noise and power consumption), this script dynamically adjusts fan speeds based on temperature readings.
 
-## Installation
+## Installation and Removal
 
-To install the application with GPU monitoring support, run:
+To install the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/gpu-monitoring/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
 ```
 
 Prerequisites:
 - IPMI must be enabled in your iDRAC settings
-- For GPU monitoring: NVIDIA drivers must be installed
+- For GPU monitoring: NVIDIA drivers must be installed (optional)
 
 The installation script will:
-- Install required dependencies (lm-sensors and ipmitool)
-- Install the scripts to /usr/local/bin/dell-fan-control/
-- Create and enable a systemd service
-- Start the fan control service with default settings
+1. Check and install required dependencies
+2. Detect NVIDIA GPU if present
+3. Install scripts and service
+4. Create initial configuration
+5. Start the fan control service
+
+### Uninstallation
+
+To uninstall the application, run:
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/uninstall.sh)"
+```
+
+The uninstall script will:
+1. Stop and disable the service
+2. Create a backup of your configuration
+3. Remove all installed files
+4. Restore Dell's default fan control
+5. Clean up systemd configuration
 
 Configuration:
 -------------
