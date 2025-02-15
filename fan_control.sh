@@ -227,6 +227,7 @@ T_OLD=0
 GPU_T_OLD=0
 FAN_PERCENT=$FAN_MIN
 GPU_FAN_PERCENT=$FAN_MIN
+CONTROL=0  # Initialize control counter for manual control verification
 
 # Function to validate configuration
 validate_config() {
