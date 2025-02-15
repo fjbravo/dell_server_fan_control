@@ -9,6 +9,8 @@ on:
 
 jobs:
   update-refs:
+    # Skip if the push was made by the GitHub Actions bot
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
