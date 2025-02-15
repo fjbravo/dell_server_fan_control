@@ -160,7 +160,7 @@ get_gpu_temp() {
     if ! command -v nvidia-smi >/dev/null 2>&1; then
         echo "Error: 'nvidia-smi' command not found. Please install NVIDIA drivers." >&2
         return 1
-    }
+    fi
 
     # Get GPU temperature
     local temp
