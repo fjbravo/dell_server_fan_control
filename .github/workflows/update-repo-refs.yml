@@ -1,0 +1,73 @@
+name: Update Repository References
+
+# Workflow triggers only when README.md or install.sh are modified
+on:
+  push:
+    branches:
+      - '*'
+    tags-ignore:
+      - '*'
+    paths:
+      - 'README.md'
+      - 'install.sh'
+
+jobs:
+  update-refs:
+    # Skip if the push was made by the GitHub Actions bot
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Check and update repository references
+        id: check_and_update_repository_references
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          REPO_OWNER=$(echo $GITHUB_REPOSITORY | cut -d '/' -f1)
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d '/' -f2)
+          NEEDS_UPDATE=false
+          
+          # Check README.md
+          if grep -q "raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^/]*/.*" README.md; then
+            CURRENT_BRANCH=$(grep -o "raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^/]*/" README.md | head -1 | cut -d'/' -f6)
+            if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
+              echo "README.md references $CURRENT_BRANCH, updating to $BRANCH"
+              sed -i "s|raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^/]*/|raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH/|g" README.md
+              NEEDS_UPDATE=true
+            else
+              echo "README.md already references correct branch: $BRANCH"
+            fi
+          fi
+          
+          # Check install.sh
+          if grep -q "REPO_URL=\"https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^\"]*\"" install.sh; then
+            CURRENT_BRANCH=$(grep "REPO_URL=" install.sh | grep -o "/$REPO_OWNER/$REPO_NAME/[^\"]*" | cut -d'/' -f4)
+            if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
+              echo "install.sh references $CURRENT_BRANCH, updating to $BRANCH"
+              sed -i "s|REPO_URL=\"https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/[^\"]*\"|REPO_URL=\"https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH\"|g" install.sh
+              NEEDS_UPDATE=true
+            else
+              echo "install.sh already references correct branch: $BRANCH"
+            fi
+          fi
+          
+          # Export result for next steps
+          if [ "$NEEDS_UPDATE" = true ]; then
+            echo "update_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push if changed
+        if: steps.check_and_update_repository_references.outputs.update_needed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add README.md install.sh
+          git commit -m "chore: update repository references to branch ${GITHUB_REF#refs/heads/}"
+          git push
