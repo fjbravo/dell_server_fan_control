@@ -1,5 +1,5 @@
 # dell_server_fan_control
-Simple linux bash scripts to get the highest CPU temperature from lm-sensors, and set the fan speed according to user settings via ipmitool.
+Linux bash scripts to control Dell server fans based on CPU and GPU temperatures using lm-sensors and nvidia-smi, with fan speed control via ipmitool.
 
 Disclaimer: I am not responsible for what this does to your hardware. It is entirely your responsibility to monitor what is going on with your hardware. Use at your own risk.
 
@@ -33,10 +33,26 @@ Notes:
 - The GPU monitoring version requires additional configuration (see GPU Settings below)
 
 The installation script will:
-- Install required dependencies (lm-sensors and ipmitool)
-- Install the scripts to /usr/local/bin/dell-fan-control/
-- Create and enable a systemd service
-- Start the fan control service with default settings
+1. Check and install required dependencies
+2. Detect NVIDIA GPU if present
+3. Install scripts and service
+4. Create initial configuration
+5. Start the fan control service
+
+### Uninstallation
+
+To uninstall the application, run:
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/uninstall.sh)"
+```
+
+The uninstall script will:
+1. Stop and disable the service
+2. Create a backup of your configuration
+3. Remove all installed files
+4. Restore Dell's default fan control
+5. Clean up systemd configuration
 
 Configuration:
 -------------
@@ -49,7 +65,7 @@ IDRAC_USER="root"            # iDRAC username
 IDRAC_PASSWORD="calvin"      # iDRAC password
 ```
 
-### Temperature Control Settings
+### CPU Temperature Control Settings
 ```bash
 # Minimum fan speed (percentage)
 FAN_MIN="12"                 # Fans will never go below this speed
@@ -73,6 +89,24 @@ HYST_WARMING="3"            # Degrees increase needed before speeding up fans
 HYST_COOLING="4"            # Degrees decrease needed before slowing down fans
 ```
 
+### GPU Temperature Control Settings
+```bash
+# Enable/disable GPU monitoring
+GPU_MONITORING="y"          # Set to "n" to disable GPU monitoring
+
+# GPU temperature thresholds (in Celsius)
+GPU_MIN_TEMP="30"          # Temperature at which GPU fans start ramping up
+GPU_MAX_TEMP="75"          # Temperature at which GPU fans reach 100%
+GPU_FAIL_THRESHOLD="90"    # Emergency shutdown temperature
+
+# GPU hysteresis settings
+GPU_HYST_WARMING="2"       # Degrees increase needed before speeding up fans
+GPU_HYST_COOLING="3"       # Degrees decrease needed before slowing down fans
+
+# Fan assignment
+GPU_FAN_IDS="5,6"         # Comma-separated list of fan IDs for GPU cooling
+```
+
 ### Monitoring Settings
 ```bash
 LOOP_TIME="10"              # How often to check temperatures (in seconds)
@@ -80,6 +114,23 @@ LOG_FREQUENCY="6"           # How often to log when system is stable (in cycles)
 LOG_FILE="/var/log/fan_control.log"  # Base log file location (timestamped files will be created)
 DEBUG="n"                  # Enable verbose logging (y/n)
 ```
+
+### Version History
+
+#### v1.1.0 (2024-02-14)
+- Added GPU temperature monitoring and fan control
+- Added automatic NVIDIA GPU detection
+- Added GPU-specific configuration options
+- Added graceful fallback for GPU monitoring
+- Fixed initialization issues
+- Added comprehensive troubleshooting guide
+- Enhanced error handling and logging
+
+#### v1.0.0
+- Initial release with CPU temperature monitoring
+- Basic fan speed control
+- Dynamic configuration reloading
+- Systemd service integration
 
 ### Dynamic Configuration
 The service automatically reloads the configuration every 60 seconds. You can modify settings while the service is running:
@@ -142,5 +193,49 @@ The log file shows different types of messages:
 - ✓ Normal operation (e.g., "System stable - CPU Temp: 45°C (All Fans: 35%), GPU Temp: 55°C (GPU Fans: +10% = 45%)")
 - ⚡ Changes detected (e.g., "Temperature change detected")
 - ↑↓ Fan speed adjustments
+  * "Setting minimum fan speed: 12%"
+  * "Setting minimum GPU fan speed: 12%"
 - ⚠ Warnings and critical events
-- ⚙ Configuration changes
+  * "CRITICAL!!!! CPU Temperature 83°C exceeds shutdown threshold"
+  * "CRITICAL!!!! GPU Temperature 90°C exceeds shutdown threshold"
+  * "Failed to read GPU temperature. Disabling GPU monitoring."
+- ⚙ Configuration changes and status
+  * "Manual fan control verified"
+  * "Configuration reloaded"
+  * "NVIDIA GPU detected" (during installation)
+
+### Troubleshooting
+
+#### GPU Monitoring Issues
+1. If GPU monitoring fails:
+   - The script will automatically disable GPU monitoring
+   - CPU fan control will continue to work normally
+   - Check nvidia-smi command manually: `nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits`
+   - Verify NVIDIA drivers are installed: `nvidia-smi -L`
+
+2. To re-enable GPU monitoring after fixing driver issues:
+   - Edit config: `sudo nano /usr/local/bin/dell-fan-control/config.env`
+   - Set `GPU_MONITORING="y"`
+   - Wait for configuration reload (up to 60 seconds)
+
+#### Fan Control
+1. Default GPU fans (5,6) not optimal for your setup:
+   - Check fan layout: `ipmitool sensor list | grep Fan`
+   - Edit `GPU_FAN_IDS` in config.env with appropriate fan numbers
+   - Multiple fans can be specified: e.g., `GPU_FAN_IDS="4,5,6"`
+
+#### Common Issues
+1. "integer expression expected" error:
+   - Fixed in latest version
+   - Reinstall using the installation command to update
+   
+2. GPU temperature not being detected:
+   - Check if GPU is recognized: `lspci | grep -i nvidia`
+   - Verify drivers are loaded: `lsmod | grep nvidia`
+   - Check NVIDIA driver status: `systemctl status nvidia-*`
+
+3. Fan speeds not changing:
+   - Verify iDRAC settings allow fan control
+   - Check iDRAC credentials in config.env
+   - Ensure IPMI over LAN is enabled
+   - Test manual fan control: `ipmitool raw 0x30 0x30 0x01 0x00`

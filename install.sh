@@ -62,6 +62,22 @@ check_dependencies() {
     else
         echo "All required dependencies are already installed"
     fi
+    
+    # Check for NVIDIA drivers (optional)
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        echo "- NVIDIA drivers are installed"
+        # Check if GPU is detected
+        if nvidia-smi --query-gpu=gpu_name --format=csv,noheader >/dev/null 2>&1; then
+            echo "  ✓ NVIDIA GPU detected"
+        else
+            echo "  ! NVIDIA drivers installed but no GPU detected"
+            echo "  ! GPU monitoring will be disabled"
+        fi
+    else
+        echo "- NVIDIA drivers not found"
+        echo "  ! GPU monitoring will be disabled"
+        echo "  ! To enable GPU monitoring, install NVIDIA drivers and run this script again"
+    fi
 }
 
 # Function to download required files
@@ -226,6 +242,10 @@ echo "4. Configuration:"
 echo "   - Files located in: $INSTALL_DIR"
 echo "   - Edit settings: sudo nano $INSTALL_DIR/config.env"
 echo "   - Default template: $INSTALL_DIR/config.template.env"
+echo "   - GPU monitoring settings:"
+echo "     * Enable/disable: GPU_MONITORING=y/n"
+echo "     * Temperature thresholds: GPU_MIN_TEMP, GPU_MAX_TEMP, GPU_FAIL_THRESHOLD"
+echo "     * Fan IDs: GPU_FAN_IDS (comma-separated list, default: 5,6)"
 echo
 echo "5. Service control:"
 echo "   sudo systemctl stop ${SERVICE_NAME}     # Stop the service"

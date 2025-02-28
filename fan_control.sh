@@ -179,6 +179,49 @@ get_cpu_temp() {
     return 0
 }
 
+# Function to get GPU temperature
+get_gpu_temp() {
+    # Check if nvidia-smi exists
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        echo "Error: 'nvidia-smi' command not found. Please install NVIDIA drivers." >&2
+        return 1
+    fi
+
+    # Get GPU temperature
+    local temp
+    temp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null)
+    
+    # Check if we got a valid temperature reading
+    if [ -z "$temp" ] || ! [[ "$temp" =~ ^[0-9]+$ ]]; then
+        echo "Error: Could not read GPU temperature. Check if NVIDIA GPU is present and drivers are loaded." >&2
+        return 1
+    fi
+    
+    echo "$temp"
+    return 0
+}
+
+# Function to set fan speed for specific fans
+set_fan_speed() {
+    local fan_ids="$1"
+    local speed="$2"
+    local success=0
+    
+    # Convert speed to hexadecimal
+    local hex_speed=$(printf '0x%02x' "$speed")
+    
+    # Set speed for each fan ID
+    IFS=',' read -ra FAN_ARRAY <<< "$fan_ids"
+    for fan_id in "${FAN_ARRAY[@]}"; do
+        if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 "$fan_id" "$hex_speed" 2>/dev/null; then
+            echo "$DATE ⚠ Error: Failed to set fan $fan_id speed to $speed%" >&2
+            success=1
+        fi
+    done
+    
+    return $success
+}
+
 # Check IPMI connectivity first
 if ! check_ipmi; then
     exit 1
@@ -389,6 +432,50 @@ validate_config() {
         error_found=1
     fi
     
+    # Validate GPU settings if GPU monitoring is enabled
+    if [ "$GPU_MONITORING" = "y" ]; then
+        # Check if all GPU variables are set
+        local gpu_vars=(
+            "GPU_MIN_TEMP" "GPU_MAX_TEMP" "GPU_FAIL_THRESHOLD"  # Temperature settings
+            "GPU_HYST_WARMING" "GPU_HYST_COOLING"  # Hysteresis settings
+            "GPU_FAN_IDS"  # Fan IDs
+        )
+        
+        for var in "${gpu_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+                echo "$DATE ⚠ Error: Required GPU variable $var is not set" >&2
+                error_found=1
+            fi
+        done
+        
+        # Validate GPU temperature ranges
+        if ! [[ "$GPU_MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MIN_TEMP" -lt 0 ] || [ "$GPU_MIN_TEMP" -gt 100 ]; then
+            echo "$DATE ⚠ Error: GPU_MIN_TEMP must be between 0 and 100" >&2
+            error_found=1
+        fi
+        
+        if ! [[ "$GPU_MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MAX_TEMP" -lt 0 ] || [ "$GPU_MAX_TEMP" -gt 100 ]; then
+            echo "$DATE ⚠ Error: GPU_MAX_TEMP must be between 0 and 100" >&2
+            error_found=1
+        fi
+        
+        if [ "$GPU_MIN_TEMP" -ge "$GPU_MAX_TEMP" ]; then
+            echo "$DATE ⚠ Error: GPU_MIN_TEMP must be less than GPU_MAX_TEMP" >&2
+            error_found=1
+        fi
+        
+        if [ "$GPU_FAIL_THRESHOLD" -le "$GPU_MAX_TEMP" ]; then
+            echo "$DATE ⚠ Error: GPU_FAIL_THRESHOLD must be greater than GPU_MAX_TEMP" >&2
+            error_found=1
+        fi
+        
+        # Validate GPU fan IDs format (comma-separated numbers)
+        if ! [[ "$GPU_FAN_IDS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+            echo "$DATE ⚠ Error: GPU_FAN_IDS must be comma-separated numbers" >&2
+            error_found=1
+        fi
+    fi
+    
     return $error_found
 }
 
@@ -488,6 +575,7 @@ while true; do
    CPU_T=$(get_cpu_temp)
    [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
    if [ $? -ne 0 ]; then
+       echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
        echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
        /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
        exit 1
