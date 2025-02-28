@@ -3,46 +3,34 @@ Linux bash scripts to control Dell server fans based on CPU and GPU temperatures
 
 Disclaimer: I am not responsible for what this does to your hardware. It is entirely your responsibility to monitor what is going on with your hardware. Use at your own risk.
 
-## Features
+I made this to run on my proxmox server, which runs Debian. YMMV. My used Poweredge R730xd came with a bad motherboard. After replacing with a used motherboard from eBay, I found that board would not increase the fan speed when cpu temps were hight. It could hit thermal throttle with no increase in fan speed. 
 
-### CPU Temperature Control
-- Dynamic fan speed control based on CPU temperature
-- Configurable minimum and maximum temperature thresholds
-- Hysteresis to prevent rapid fan speed changes
-- Emergency shutdown protection
-- Minimum fan speed setting
+Instead of setting the fans to a constant speed (creating too much noise, and increasing power draw for no reason), I wrote this script that figures out what percentage the fans should be based on CPU temps and user settings. 
 
-### GPU Temperature Control (New!)
-- NVIDIA GPU temperature monitoring via nvidia-smi
-- Independent control of GPU-specific fans (default: fans 5 and 6)
-- Separate temperature thresholds and hysteresis settings for GPU
-- Automatic detection of NVIDIA GPUs
-- Graceful fallback if GPU monitoring fails
-- Automatic enabling/disabling based on GPU presence
-- Can run with or without GPU monitoring enabled
-- Safe initialization and error handling
+I've seen other scripts out there, and while they do work, many send unnecessary commands, have limited ranges for fan speed, don't have hystoresis, or were simply not designed to control a system's fan speeds entirely.
 
-### General Features
-- Efficient IPMI commands to minimize system impact
-- Dynamic configuration reloading
-- Detailed logging with different message types
-- Systemd service integration
-- Easy installation and configuration
+With the main fan control script, simply set the MIN_TEMP to where the fan speed should be 0%. Set MAX_TEMP where the fan should be 100% and FAN_MIN to the bare minimum fan speed if you would like them not to go below a certain PWM percentage. Set the hysteresis options, other described variables and follow below.
 
-## Background
-This script was originally created for a Proxmox server running on a Dell PowerEdge R730xd with a replacement motherboard that had issues with fan control. Instead of setting fans to a constant speed (creating unnecessary noise and power consumption), this script dynamically adjusts fan speeds based on temperature readings.
+If you set the FAN_MIN to 15, and set MIN_TEMP to 40, fan speeds will stay at 15 until the calculated fan speed exceeds 15%. This means you won't see an increase in fan speeds until somewhere above 4x or 5x degrees depending on all 3 variables. You may have to play around with values to find the ranges you are looking for.
 
-## Installation and Removal
+Installation:
 
-To install the application, run:
+To install the standard version (CPU monitoring only), run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring/install.sh)"
 ```
 
-Prerequisites:
-- IPMI must be enabled in your iDRAC settings
-- For GPU monitoring: NVIDIA drivers must be installed (optional)
+To install the version with GPU temperature monitoring, run:
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring/install.sh)"
+```
+
+Notes: 
+- Ensure IPMI is enabled in your iDRAC settings before installation
+- For GPU monitoring, ensure NVIDIA drivers are installed and nvidia-smi is available
+- The GPU monitoring version requires additional configuration (see GPU Settings below)
 
 The installation script will:
 1. Check and install required dependencies
@@ -56,7 +44,7 @@ The installation script will:
 To uninstall the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/uninstall.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring/uninstall.sh)"
 ```
 
 The uninstall script will:
@@ -82,10 +70,19 @@ IDRAC_PASSWORD="calvin"      # iDRAC password
 # Minimum fan speed (percentage)
 FAN_MIN="12"                 # Fans will never go below this speed
 
-# Temperature thresholds (in Celsius)
-MIN_TEMP="40"               # Temperature at which fans start ramping up
-MAX_TEMP="80"               # Temperature at which fans reach 100%
-TEMP_FAIL_THRESHOLD="83"    # Emergency shutdown temperature
+# CPU Temperature Settings
+CPU_MIN_TEMP="40"           # Temperature at which CPU fans start ramping up
+CPU_MAX_TEMP="80"           # Temperature at which CPU fans reach 100%
+CPU_TEMP_FAIL_THRESHOLD="83" # Emergency shutdown temperature for CPU
+
+# GPU Temperature Settings (only in GPU monitoring version)
+GPU_MIN_TEMP="30"           # Temperature at which GPU fans start ramping up
+GPU_MAX_TEMP="85"           # Temperature at which GPU fans reach 100%
+GPU_TEMP_FAIL_THRESHOLD="90" # Emergency shutdown temperature for GPU
+
+# Fan Zone Settings (only in GPU monitoring version)
+GPU_FANS="1,2"             # Comma-separated list of fans near the GPU (e.g., "1,2")
+CPU_FANS="3,4,5,6"         # Comma-separated list of fans for CPU cooling
 
 # Hysteresis settings (prevents rapid fan speed changes)
 HYST_WARMING="3"            # Degrees increase needed before speeding up fans
@@ -167,14 +164,34 @@ sudo systemctl start dell_ipmi_fan_control    # Start the service
 sudo systemctl restart dell_ipmi_fan_control  # Restart the service
 ```
 
+### GPU Temperature Monitoring
+The GPU monitoring version provides intelligent fan control that considers both CPU and GPU temperatures:
+
+1. Base Fan Speed:
+   - All fans respond to CPU temperature as a baseline
+   - This ensures proper cooling for the entire system
+   - Base speed is calculated using CPU_MIN_TEMP and CPU_MAX_TEMP
+
+2. GPU-Specific Cooling:
+   - If GPU temperature requires higher fan speeds than the CPU-based baseline:
+     * Only the GPU-designated fans (GPU_FANS) get an extra speed boost
+     * Extra speed = GPU required speed - CPU baseline speed
+   - When GPU temperature is under control:
+     * GPU fans run at the same speed as other fans
+     * No extra power or noise when not needed
+
+Example Scenario:
+- CPU temperature requires 40% fan speed
+- GPU temperature requires 60% fan speed
+- Result:
+  * All fans run at 40% (base speed from CPU temp)
+  * GPU fans get additional 20% (running at 60%)
+  * When GPU cools down, GPU fans return to base speed
+
 ### Log Messages
 The log file shows different types of messages:
-- ✓ Normal operation
-  * CPU only: "System stable - CPU Temp: 45°C, Fan: 35%"
-  * With GPU: "System stable - CPU Temp: 45°C, CPU Fan: 35%, GPU Temp: 65°C, GPU Fan: 75%"
-- ⚡ Changes detected
-  * "CPU Temperature change detected (50°C)"
-  * "GPU Temperature change detected (70°C)"
+- ✓ Normal operation (e.g., "System stable - CPU Temp: 45°C (All Fans: 35%), GPU Temp: 55°C (GPU Fans: +10% = 45%)")
+- ⚡ Changes detected (e.g., "Temperature change detected")
 - ↑↓ Fan speed adjustments
   * "Setting minimum fan speed: 12%"
   * "Setting minimum GPU fan speed: 12%"

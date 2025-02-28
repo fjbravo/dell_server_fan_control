@@ -7,7 +7,7 @@ INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
 TEMP_DIR="/tmp/dell-fan-control-install"
-REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main"
+REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/gpu-temp-monitoring"
 IS_UPDATE=false
 TEMP_SETTINGS=""
 
@@ -257,7 +257,9 @@ if [ "$IS_UPDATE" = true ]; then
     echo "Note: If you experience any issues with this update, you can restore"
     echo "      the backup from $BACKUP_DIR"
     echo
-    echo "      A new default configuration template has been saved as:"
+    echo "      Your current config.env has been saved as template:"
     echo "      $INSTALL_DIR/config.template.env"
-    echo "      Compare it with your existing config.env and update manually if needed."
+    echo "      A new default configuration is available at:"
+    echo "      $INSTALL_DIR/config.env.new"
+    echo "      Compare them and update your config.env manually if needed."
 fi
