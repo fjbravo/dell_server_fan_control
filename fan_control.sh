@@ -90,6 +90,9 @@ echo "Date $DATE --- Degrees cooler before decreasing fan speed = "$HYST_COOLING
 echo "Date $DATE --- Time between temperature checks = "$LOOP_TIME" seconds">> $LOG_FILE
 echo "Date $DATE --- Current log file: $LOG_FILE">> $LOG_FILE
 echo "Date $DATE --- Latest log symlink: $LATEST_LOG">> $LOG_FILE
+if [ "$DRY_RUN" = "y" ]; then
+    echo "Date $DATE --- DRY-RUN MODE ENABLED (fan changes will be logged but not executed)">> $LOG_FILE
+fi
 # Function to check IPMI connectivity and initialize if needed
 check_ipmi() {
     # Check if ipmitool exists
@@ -106,6 +109,12 @@ check_ipmi() {
         echo "  - Password: [hidden]" >&2
         echo "  - Ensure IPMI over LAN is enabled in iDRAC" >&2
         return 1
+    fi
+
+    # In dry-run mode, we still need to verify connectivity but won't make changes
+    if [ "$DRY_RUN" = "y" ]; then
+        echo "Dry-run mode: IPMI connectivity verified, skipping initialization" >&2
+        return 0
     fi
 
     # Enable IPMI LAN channel
@@ -239,7 +248,13 @@ CPU_T=$(get_cpu_temp)
    [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
 if [ $? -ne 0 ]; then
     echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
-    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+    
+    if [ "$DRY_RUN" = "y" ]; then
+        echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure" >> $LOG_FILE
+    else
+        /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+    fi
+    
     exit 1
 fi
 
@@ -255,11 +270,22 @@ fi
 if [ "$CPU_T" -ge 1 ] && [ "$CPU_T" -le 99 ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
    # Enable manual fan control and set fan PWM % via ipmitool
    echo "$DATE ✓ Valid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling manual fan control." >> $LOG_FILE
-   /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
-   echo "$DATE ✓ Enabled dynamic fan control" >> $LOG_FILE
+   
+   if [ "$DRY_RUN" = "y" ]; then
+       echo "$DATE 🔍 DRY-RUN: Would enable manual fan control" >> $LOG_FILE
+   else
+       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
+       echo "$DATE ✓ Enabled dynamic fan control" >> $LOG_FILE
+   fi
 else
    echo "$DATE ⚠ Error: Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control." >> $LOG_FILE
-   /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+   
+   if [ "$DRY_RUN" = "y" ]; then
+       echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control" >> $LOG_FILE
+   else
+       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+   fi
+   
    exit 0
 fi
 
@@ -273,6 +299,12 @@ GPU_EXTRA_PERCENT=0
 set_all_fans_speed() {
     local speed="$1"
     local hex_speed=$(printf '0x%02x' $speed)
+    
+    # In dry-run mode, only log what would happen
+    if [ "$DRY_RUN" = "y" ]; then
+        echo "$DATE 🔍 DRY-RUN: Would set all fans speed to $speed%" >> $LOG_FILE
+        return 0
+    fi
     
     # Sleep for 1 second before sending IPMI command
     sleep 1
@@ -293,6 +325,12 @@ set_fan_speed() {
     
     # Convert fan speed to hexadecimal
     local hex_speed=$(printf '0x%02x' $speed)
+    
+    # In dry-run mode, only log what would happen
+    if [ "$DRY_RUN" = "y" ]; then
+        echo "$DATE 🔍 DRY-RUN: Would set fans $fan_list speed to $speed%" >> $LOG_FILE
+        return 0
+    fi
     
     # Sleep for 1 second before sending IPMI command
     sleep 1
@@ -439,6 +477,13 @@ validate_config() {
         error_found=1
     fi
     
+    # Validate DRY_RUN setting
+    if [ -n "$DRY_RUN" ] && [ "$DRY_RUN" != "y" ] && [ "$DRY_RUN" != "n" ]; then
+        echo "$DATE ⚠ Warning: Invalid DRY_RUN value '$DRY_RUN'. Must be 'y' or 'n'. Defaulting to 'n'." >> $LOG_FILE
+        DRY_RUN="n"  # Default to normal operation
+        # Not incrementing error_found since this shouldn't stop the program
+    fi
+    
     # Validate GPU settings if GPU monitoring is enabled
     if [ "$GPU_MONITORING" = "y" ]; then
         # Check if all GPU variables are set
@@ -583,8 +628,13 @@ while true; do
    [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
    if [ $? -ne 0 ]; then
        echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
-       echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
-       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+       
+       if [ "$DRY_RUN" = "y" ]; then
+           echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure" >> $LOG_FILE
+       else
+           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+       fi
+       
        exit 1
    fi
 
@@ -677,8 +727,12 @@ while true; do
          # Periodic manual control check (every 10 cycles)
          if [ "$CONTROL" -eq 10 ]; then
             CONTROL=0
-            /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
-            echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
+            if [ "$DRY_RUN" = "y" ]; then
+                echo "$DATE 🔍 DRY-RUN: Would verify manual fan control" >> $LOG_FILE
+            else
+                /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
+                echo "$DATE ✓ Manual fan control verified" >> $LOG_FILE
+            fi
          else
             CONTROL=$(( CONTROL + 1 ))
          fi
@@ -687,7 +741,13 @@ while true; do
          [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting base fan speed for all fans to ${BASE_FAN_PERCENT}%" >> $LOG_FILE
          if ! set_all_fans_speed "$BASE_FAN_PERCENT"; then
              echo "$DATE ⚠ Error: Failed to set base fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
-             /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+             
+             if [ "$DRY_RUN" = "y" ]; then
+                 echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to fan speed setting failure" >> $LOG_FILE
+             else
+                 /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+             fi
+             
              exit 1
          fi
          
@@ -701,7 +761,13 @@ while true; do
              
              if ! set_fan_speed "$GPU_FANS" "$gpu_final_percent"; then
                  echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
-                 /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+                 
+                 if [ "$DRY_RUN" = "y" ]; then
+                     echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to GPU fan speed setting failure" >> $LOG_FILE
+                 else
+                     /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+                 fi
+                 
                  exit 1
              fi
              echo "$DATE ✓ Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)" >> $LOG_FILE
@@ -722,7 +788,13 @@ while true; do
    else
       # Error handling: Invalid temperature reading
       echo "$DATE ⚠ Error: Invalid temperature reading (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C). Reverting to stock Dell fan control" >> $LOG_FILE
-      /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+      
+      if [ "$DRY_RUN" = "y" ]; then
+          echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to invalid temperature readings" >> $LOG_FILE
+      else
+          /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+      fi
+      
       exit 0
    fi
    

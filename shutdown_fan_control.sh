@@ -38,5 +38,12 @@ fi
 DATE=$(date +%d-%m-%Y\ %H:%M:%S)
 # Update Log
 echo "Date $DATE --- Exiting Dell IPMI fan control service...">> $LOG_FILE
-# Go back do Dell Control
-/usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+
+# Check if in dry-run mode
+if [ "$DRY_RUN" = "y" ]; then
+    echo "Date $DATE --- DRY-RUN: Would return to Dell's default fan control">> $LOG_FILE
+else
+    # Go back to Dell Control
+    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+    echo "Date $DATE --- Returned to Dell's default fan control">> $LOG_FILE
+fi
