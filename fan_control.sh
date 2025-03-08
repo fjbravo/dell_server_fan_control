@@ -202,25 +202,25 @@ get_gpu_temp() {
 }
 
 # Function to set fan speed for specific fans
-set_fan_speed() {
-    local fan_ids="$1"
-    local speed="$2"
-    local success=0
+# set_fan_speed() {
+#     local fan_ids="$1"
+#     local speed="$2"
+#     local success=0
     
-    # Convert speed to hexadecimal
-    local hex_speed=$(printf '0x%02x' "$speed")
+#     # Convert speed to hexadecimal
+#     local hex_speed=$(printf '0x%02x' "$speed")
     
-    # Set speed for each fan ID
-    IFS=',' read -ra FAN_ARRAY <<< "$fan_ids"
-    for fan_id in "${FAN_ARRAY[@]}"; do
-        if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 "$fan_id" "$hex_speed" 2>/dev/null; then
-            echo "$DATE ⚠ Error: Failed to set fan $fan_id speed to $speed%" >&2
-            success=1
-        fi
-    done
+#     # Set speed for each fan ID
+#     IFS=',' read -ra FAN_ARRAY <<< "$fan_ids"
+#     for fan_id in "${FAN_ARRAY[@]}"; do
+#         if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 "$fan_id" "$hex_speed" 2>/dev/null; then
+#             echo "$DATE ⚠ Error: Failed to set fan $fan_id speed to $speed%" >&2
+#             success=1
+#         fi
+#     done
     
-    return $success
-}
+#     return $success
+# }
 
 # Check IPMI connectivity first
 if ! check_ipmi; then
