@@ -18,13 +18,13 @@ Installation:
 To install the standard version (CPU monitoring only), run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/fix/cpu-invalid-temperature-reading/install.sh)"
 ```
 
 To install the version with GPU temperature monitoring, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/fix/cpu-invalid-temperature-reading/install.sh)"
 ```
 
 Notes: 
@@ -44,7 +44,7 @@ The installation script will:
 To uninstall the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/uninstall.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/fix/cpu-invalid-temperature-reading/uninstall.sh)"
 ```
 
 The uninstall script will:
@@ -113,9 +113,15 @@ LOOP_TIME="10"              # How often to check temperatures (in seconds)
 LOG_FREQUENCY="6"           # How often to log when system is stable (in cycles)
 LOG_FILE="/var/log/fan_control.log"  # Base log file location (timestamped files will be created)
 DEBUG="n"                  # Enable verbose logging (y/n)
+DRY_RUN="n"                # Enable dry-run mode (y/n) - logs fan changes without executing them
 ```
 
 ### Version History
+
+#### v1.2.0 (2025-03-08)
+- Added dry-run mode for testing configuration without affecting hardware
+- Improved error handling and logging
+- Enhanced configuration validation
 
 #### v1.1.0 (2024-02-14)
 - Added GPU temperature monitoring and fan control
@@ -203,6 +209,37 @@ The log file shows different types of messages:
   * "Manual fan control verified"
   * "Configuration reloaded"
   * "NVIDIA GPU detected" (during installation)
+
+### Dry-Run Mode
+The dry-run mode allows you to test the fan control script without actually changing fan speeds. This is useful for:
+
+- Testing new configuration settings safely
+- Monitoring how the script would respond to temperature changes
+- Debugging issues without affecting your hardware
+
+When dry-run mode is enabled:
+1. The script will calculate fan speeds normally based on temperatures
+2. All fan speed changes will be logged with a "DRY-RUN" prefix
+3. No actual IPMI commands will be sent to change fan speeds
+
+To enable dry-run mode:
+```bash
+# Edit the configuration file
+sudo nano /usr/local/bin/dell-fan-control/config.env
+
+# Set DRY_RUN to "y"
+DRY_RUN="y"
+
+# Save and exit
+```
+
+The changes will take effect within the normal configuration reload period (up to 60 seconds).
+
+Example log entries in dry-run mode:
+```
+12:34:56 🔍 DRY-RUN: Would set all fans speed to 35%
+12:35:06 🔍 DRY-RUN: Would set fans 5,6 speed to 45%
+```
 
 ### Troubleshooting
 
