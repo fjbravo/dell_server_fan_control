@@ -5,6 +5,47 @@ set -x
 
 # A simple bash script that uses lm_sensors to check CPU temps, and ipmitool to adjust fan speeds on iDRAC based systems.
 #
+# Logging functions
+# Function for debug logging
+debug_log() {
+    if [ "$DEBUG" = "y" ]; then
+        echo "$DATE 🔍 DEBUG: $1" >> $LOG_FILE
+    fi
+    return 0  # Always return success to avoid affecting $?
+}
+
+# Function for info logging
+info_log() {
+    echo "$DATE ✓ $1" >> $LOG_FILE
+    return 0
+}
+
+# Function for warning logging
+warn_log() {
+    echo "$DATE ⚠ Warning: $1" >> $LOG_FILE
+    return 0
+}
+
+# Function for error logging
+error_log() {
+    echo "$DATE ⚠ Error: $1" >> $LOG_FILE
+    return 0
+}
+
+# Function to validate temperature readings
+is_valid_temp() {
+    local temp="$1"
+    local min="${2:-1}"  # Default min value is 1°C
+    local max="${3:-99}" # Default max value is 99°C
+    
+    # Check if temp is a number and within range
+    if [[ "$temp" =~ ^[0-9]+$ ]] && [ "$temp" -ge "$min" ] && [ "$temp" -le "$max" ]; then
+        return 0  # Valid (success)
+    else
+        return 1  # Invalid (failure)
+    fi
+}
+#
 # Copyright (C) 2022  Milkysunshine
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -245,9 +286,9 @@ fi
 
 # Get initial CPU temperature
 CPU_T=$(get_cpu_temp)
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read Initial CPU temperature: ${CPU_T}°C" >> $LOG_FILE
-if [ $? -ne 0 ]; then
-    echo "$DATE ⚠ Error: Failed to read Initital CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
+debug_log "Read Initial CPU temperature: ${CPU_T}°C"
+if ! is_valid_temp "$CPU_T"; then
+    error_log "Failed to read Initial CPU temperature or value out of range (${CPU_T}). Enabling stock Dell fan control."
     
     if [ "$DRY_RUN" = "y" ]; then
         echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to Initial CPU temperature read failure" >> $LOG_FILE
@@ -260,16 +301,17 @@ fi
 
 # Get initial GPU temperature (non-fatal if it fails)
 GPU_T=$(get_gpu_temp)
-if [ $? -ne 0 ]; then
-    echo "$DATE ⚠ Warning: Failed to read Initial GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
+debug_log "Read Initial GPU temperature: ${GPU_T}°C"
+if ! is_valid_temp "$GPU_T"; then
+    warn_log "Failed to read Initial GPU temperature or value out of range (${GPU_T}). Using CPU temperature for all fans."
     GPU_T=$CPU_T
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read Initial GPU temperature: ${GPU_T}°C" >> $LOG_FILE
+    debug_log "Using CPU temperature (${CPU_T}°C) for GPU"
 fi
 
 # Ensure we have valid temperature readings
-if [ "$CPU_T" -ge 1 ] && [ "$CPU_T" -le 99 ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
+if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
    # Enable manual fan control and set fan PWM % via ipmitool
-   echo "$DATE ✓ Valid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling manual fan control." >> $LOG_FILE
+   info_log "Valid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling manual fan control."
    
    if [ "$DRY_RUN" = "y" ]; then
        echo "$DATE 🔍 DRY-RUN: Would enable manual fan control" >> $LOG_FILE
@@ -613,10 +655,8 @@ GPU_EXTRA_PERCENT=0
 
 # Beginning of monitoring and control loop
    # Debug: Log current settings at start of loop
-   if [ "$DEBUG" = "y" ]; then
-      echo "$DATE 🔍 DEBUG: Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C" >> $LOG_FILE
-      echo "$DATE 🔍 DEBUG: Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
-   fi
+   debug_log "Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C"
+   debug_log "Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%"
 while true; do
    DATE=$(date +%H:%M:%S)
    
@@ -625,9 +665,9 @@ while true; do
 
    # Get CPU temperature
    CPU_T=$(get_cpu_temp)
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
-   if [ $? -ne 0 ]; then
-       echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
+   debug_log "Read CPU temperature: ${CPU_T}°C"
+   if ! is_valid_temp "$CPU_T"; then
+       error_log "Failed to read CPU temperature or value out of range (${CPU_T}). Enabling stock Dell fan control."
        
        if [ "$DRY_RUN" = "y" ]; then
            echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure" >> $LOG_FILE
@@ -640,15 +680,16 @@ while true; do
 
    # Get GPU temperature
    GPU_T=$(get_gpu_temp)
-   if [ $? -ne 0 ]; then
-       echo "$DATE ⚠ Warning: Failed to read GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
+   debug_log "Read GPU temperature: ${GPU_T}°C"
+   if ! is_valid_temp "$GPU_T"; then
+       warn_log "Failed to read GPU temperature or value out of range (${GPU_T}). Using CPU temperature for all fans."
        GPU_T=$CPU_T
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read GPU temperature: ${GPU_T}°C" >> $LOG_FILE
+       debug_log "Using CPU temperature (${CPU_T}°C) for GPU"
    fi
    
-   # Validate temperature readings (must be between 1-99°C)
-      [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Temperature readings are valid (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)" >> $LOG_FILE
-   if [ "$CPU_T" -ge 1 ] && [ "$CPU_T" -le 99 ] && [ "$GPU_T" -ge 1 ] && [ "$GPU_T" -le 99 ]; then
+   # Validate temperature readings
+   debug_log "Checking if temperature readings are valid (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)"
+   if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
       # Check for critical temperature thresholds
       if [ "$CPU_T" -ge $CPU_TEMP_FAIL_THRESHOLD ]; then
          echo "$DATE ⚠ CRITICAL!!!! CPU Temperature ${CPU_T}°C exceeds shutdown threshold of ${CPU_TEMP_FAIL_THRESHOLD}°C" >> $LOG_FILE
@@ -670,17 +711,15 @@ while true; do
       GPU_CHANGE_COOLING=$((GPU_T_OLD-GPU_T))
       GPU_CHANGE_WARMING=$((GPU_T-GPU_T_OLD))
       
-      if [ "$DEBUG" = "y" ]; then
-         echo "$DATE 🔍 DEBUG: Temperature changes:" >> $LOG_FILE
-         echo "$DATE 🔍 DEBUG: CPU - Cooling: ${CPU_CHANGE_COOLING}°C, Warming: ${CPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)" >> $LOG_FILE
-         echo "$DATE 🔍 DEBUG: GPU - Cooling: ${GPU_CHANGE_COOLING}°C, Warming: ${GPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)" >> $LOG_FILE
-      fi
+      debug_log "Temperature changes:"
+      debug_log "CPU - Cooling: ${CPU_CHANGE_COOLING}°C, Warming: ${CPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)"
+      debug_log "GPU - Cooling: ${GPU_CHANGE_COOLING}°C, Warming: ${GPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)"
 
       # Check if temperature changes exceed hysteresis thresholds
       if [ $((CPU_T_OLD-CPU_T)) -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
          [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]; then
          
-         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Temperature change exceeds hysteresis threshold" >> $LOG_FILE
+         debug_log "Temperature change exceeds hysteresis threshold"
          echo "$DATE ⚡ Temperature change detected (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)" >> $LOG_FILE
          
          # Update last temperatures for future comparisons
@@ -692,35 +731,35 @@ while true; do
          
          # Calculate GPU fan speed without applying FAN_MIN limit
          local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP" "n")
-         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Raw GPU fan speed calculation: ${gpu_required_percent}% (temp: ${GPU_T}°C, range: ${GPU_MIN_TEMP}°C-${GPU_MAX_TEMP}°C)" >> $LOG_FILE
+         debug_log "Raw GPU fan speed calculation: ${gpu_required_percent}% (temp: ${GPU_T}°C, range: ${GPU_MIN_TEMP}°C-${GPU_MAX_TEMP}°C)"
          
          # Calculate extra cooling needed for GPU
          if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
-            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling" >> $LOG_FILE
+            debug_log "GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling"
             
             # Calculate extra cooling needed
             if [ "$gpu_required_percent" -gt 0 ]; then
                 # Start with the raw GPU fan speed
                 GPU_EXTRA_PERCENT="$gpu_required_percent"
-                [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Starting with raw GPU fan speed: ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+                debug_log "Starting with raw GPU fan speed: ${GPU_EXTRA_PERCENT}%"
                 
                 # Subtract base fan speed to get the extra cooling needed
                 if [ "$BASE_FAN_PERCENT" -gt 0 ]; then
                     GPU_EXTRA_PERCENT=$((GPU_EXTRA_PERCENT - BASE_FAN_PERCENT))
-                    [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: After subtracting base fan speed: ${gpu_required_percent}% - ${BASE_FAN_PERCENT}% = ${GPU_EXTRA_PERCENT}%" >> $LOG_FILE
+                    debug_log "After subtracting base fan speed: ${gpu_required_percent}% - ${BASE_FAN_PERCENT}% = ${GPU_EXTRA_PERCENT}%"
                 fi
                 
                 # Ensure extra cooling is at least 0
                 if [ "$GPU_EXTRA_PERCENT" -lt 0 ]; then
-                    [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Extra cooling was negative, setting to 0%" >> $LOG_FILE
+                    debug_log "Extra cooling was negative, setting to 0%"
                     GPU_EXTRA_PERCENT=0
                 fi
             else
-                [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: No extra cooling needed (required: ${gpu_required_percent}%)" >> $LOG_FILE
+                debug_log "No extra cooling needed (required: ${gpu_required_percent}%)"
                 GPU_EXTRA_PERCENT=0
             fi
          else
-            [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: GPU temp ${GPU_T}°C <= min temp ${GPU_MIN_TEMP}°C, no extra cooling needed" >> $LOG_FILE
+            debug_log "GPU temp ${GPU_T}°C <= min temp ${GPU_MIN_TEMP}°C, no extra cooling needed"
             GPU_EXTRA_PERCENT=0
          fi
          
@@ -738,7 +777,7 @@ while true; do
          fi
          
          # Set base speed for all fans with a single command
-         [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting base fan speed for all fans to ${BASE_FAN_PERCENT}%" >> $LOG_FILE
+         debug_log "Setting base fan speed for all fans to ${BASE_FAN_PERCENT}%"
          if ! set_all_fans_speed "$BASE_FAN_PERCENT"; then
              echo "$DATE ⚠ Error: Failed to set base fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
              
@@ -757,7 +796,7 @@ while true; do
              if [ "$gpu_final_percent" -gt 100 ]; then
                 gpu_final_percent=100
              fi
-             [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Setting GPU fans (${GPU_FANS}) to ${gpu_final_percent}% (base ${BASE_FAN_PERCENT}% + extra ${GPU_EXTRA_PERCENT}%)" >> $LOG_FILE
+             debug_log "Setting GPU fans (${GPU_FANS}) to ${gpu_final_percent}% (base ${BASE_FAN_PERCENT}% + extra ${GPU_EXTRA_PERCENT}%)"
              
              if ! set_fan_speed "$GPU_FANS" "$gpu_final_percent"; then
                  echo "$DATE ⚠ Error: Failed to set GPU fan speeds. Enabling stock Dell fan control." >> $LOG_FILE
