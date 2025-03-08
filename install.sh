@@ -7,7 +7,7 @@ INSTALL_DIR="/usr/local/bin/dell-fan-control"
 SERVICE_NAME="dell_ipmi_fan_control"
 BACKUP_DIR="/tmp/dell-fan-control-backup-$(date +%Y%m%d_%H%M%S)"
 TEMP_DIR="/tmp/dell-fan-control-install"
-REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main"
+REPO_URL="https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/refs/heads/fix/cpu-invalid-temperature-reading"
 IS_UPDATE=false
 TEMP_SETTINGS=""
 

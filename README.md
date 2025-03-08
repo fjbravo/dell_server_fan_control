@@ -18,13 +18,13 @@ Installation:
 To install the standard version (CPU monitoring only), run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/refs/heads/fix/cpu-invalid-temperature-reading/install.sh)"
 ```
 
 To install the version with GPU temperature monitoring, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/refs/heads/fix/cpu-invalid-temperature-reading/install.sh)"
 ```
 
 Notes: 
