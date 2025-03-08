@@ -120,6 +120,13 @@ check_ipmi() {
         return 1
     fi
 
+    # Disable 3rd Party PCIe Response
+    echo "Disabling 3rd Party PCIe Response..." >&2
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0xce 0x00 0x16 0x05 0x00 0x00 0x00 2>/dev/null; then
+        echo "Warning: Failed to disable 3rd Party PCIe Response. Fan control may still work." >&2
+        # Not returning error as this is not critical for fan control
+    fi
+
     # Verify we can read fan status
     if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD sdr type fan >/dev/null 2>&1; then
         echo "Error: Cannot read fan status. IPMI configuration may be incorrect." >&2
