@@ -245,12 +245,12 @@ fi
 
 # Get initial CPU temperature
 CPU_T=$(get_cpu_temp)
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read CPU temperature: ${CPU_T}°C" >> $LOG_FILE
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read Initial CPU temperature: ${CPU_T}°C" >> $LOG_FILE
 if [ $? -ne 0 ]; then
-    echo "$DATE ⚠ Error: Failed to read CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
+    echo "$DATE ⚠ Error: Failed to read Initital CPU temperature. Enabling stock Dell fan control." >> $LOG_FILE
     
     if [ "$DRY_RUN" = "y" ]; then
-        echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure" >> $LOG_FILE
+        echo "$DATE 🔍 DRY-RUN: Would enable stock Dell fan control due to Initial CPU temperature read failure" >> $LOG_FILE
     else
         /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
     fi
@@ -261,9 +261,9 @@ fi
 # Get initial GPU temperature (non-fatal if it fails)
 GPU_T=$(get_gpu_temp)
 if [ $? -ne 0 ]; then
-    echo "$DATE ⚠ Warning: Failed to read GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
+    echo "$DATE ⚠ Warning: Failed to read Initial GPU temperature. Using CPU temperature for all fans." >> $LOG_FILE
     GPU_T=$CPU_T
-   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read GPU temperature: ${GPU_T}°C" >> $LOG_FILE
+   [ "$DEBUG" = "y" ] && echo "$DATE 🔍 DEBUG: Read Initial GPU temperature: ${GPU_T}°C" >> $LOG_FILE
 fi
 
 # Ensure we have valid temperature readings
