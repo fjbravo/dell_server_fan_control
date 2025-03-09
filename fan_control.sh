@@ -78,28 +78,7 @@ if [ "$DRY_RUN" = "y" ]; then
     config_log "DRY-RUN MODE ENABLED (fan changes will be logged but not executed)"
 fi
 
-# Function to log current system status
-log_system_status() {
-    # Log CPU temperatures
-    log_status "CPU Temps" "$(format_cpu_temps "$CPU_T")"
-    
-    # Log all fan speeds
-    log_status "All Fans" "$(format_all_fans "$BASE_FAN_PERCENT")"
-    
-    # Log GPU temperatures
-    log_status "GPU Temps" "$(format_gpu_temps "$GPU_T")"
-    
-    # Log GPU fan speeds
-    if [ -n "$GPU_EXTRA_PERCENT" ] && [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
-        gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
-        if [ "$gpu_final_percent" -gt 100 ]; then
-            gpu_final_percent=100
-        fi
-        log_status "GPU Fans" "$(format_gpu_fans "$GPU_FANS" "$gpu_final_percent")"
-    else
-        log_status "GPU Fans" "$(format_gpu_fans "$GPU_FANS" "$BASE_FAN_PERCENT")"
-    fi
-}
+# Function to log current system status has been moved to logging.sh
 
 # Function to check IPMI connectivity and initialize if needed
 check_ipmi() {
@@ -195,7 +174,7 @@ if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
    fi
    
    # Log initial system status
-   log_system_status
+   log_system_status "$CPU_T" "$GPU_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
 else
    error_log "Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control."
    
@@ -334,7 +313,7 @@ while true; do
       fi
       
       # Log current system status in every loop
-      log_system_status
+      log_system_status "$CPU_T" "$GPU_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
       
       # Calculate temperature changes for hysteresis
       CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))

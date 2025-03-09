@@ -8,6 +8,37 @@ log_status() {
     return 0
 }
 
+# Function to log the complete system status
+log_system_status() {
+    local cpu_temp="$1"
+    local gpu_temp="$2"
+    local base_fan_percent="$3"
+    local gpu_fans="$4"
+    local gpu_extra_percent="${5:-0}"
+    
+    # Log CPU temperatures
+    log_status "CPU Temps" "$(format_cpu_temps "$cpu_temp")"
+    
+    # Log all fan speeds
+    log_status "All Fans" "$(format_all_fans "$base_fan_percent")"
+    
+    # Log GPU temperatures
+    log_status "GPU Temps" "$(format_gpu_temps "$gpu_temp")"
+    
+    # Log GPU fan speeds
+    if [ -n "$gpu_extra_percent" ] && [ "$gpu_extra_percent" -gt 0 ]; then
+        gpu_final_percent=$((base_fan_percent + gpu_extra_percent))
+        if [ "$gpu_final_percent" -gt 100 ]; then
+            gpu_final_percent=100
+        fi
+        log_status "GPU Fans" "$(format_gpu_fans "$gpu_fans" "$gpu_final_percent")"
+    else
+        log_status "GPU Fans" "$(format_gpu_fans "$gpu_fans" "$base_fan_percent")"
+    fi
+    
+    return 0
+}
+
 # Function to log changes in the new format
 log_change() {
     local type="$1"    # All Fans, GPU Fans
