@@ -374,7 +374,8 @@ set_all_fans_speed() {
 set_fan_speed() {
     local fan_list="$1"
     local speed="$2"
-    local success=0
+    local success_count=0
+    local total_fans=0
     
     # Convert fan speed to hexadecimal
     local hex_speed=$(printf '0x%02x' $speed)
@@ -391,13 +392,28 @@ set_fan_speed() {
     # Set speed for each fan in the list
     IFS=',' read -ra FANS <<< "$fan_list"
     for fan in "${FANS[@]}"; do
-        if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 $fan $hex_speed 2>/dev/null; then
-            error_log "Failed to set fan $fan speed to $speed%"
-            success=1
+        total_fans=$((total_fans + 1))
+        if /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 $fan $hex_speed 2>/dev/null; then
+            success_count=$((success_count + 1))
+        else
+            warn_log "Failed to set fan $fan speed to $speed%, continuing with other fans"
         fi
     done
     
-    return $success
+    # Only return failure if all fans failed
+    if [ $success_count -eq 0 ] && [ $total_fans -gt 0 ]; then
+        error_log "Failed to set any GPU fans to $speed%"
+        return 1
+    fi
+    
+    # Return success if at least one fan was set successfully
+    if [ $success_count -lt $total_fans ]; then
+        warn_log "Set $success_count out of $total_fans GPU fans to $speed%"
+    else
+        debug_log "Successfully set all $total_fans GPU fans to $speed%"
+    fi
+    
+    return 0
 }
 
 # Function to calculate fan speed based on temperature
