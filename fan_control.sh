@@ -683,7 +683,8 @@ while true; do
        if [ "$DRY_RUN" = "y" ]; then
            debug_log "DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure"
        else
-           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30
+0x01 0x01 2>/dev/null
        fi
        
        exit 1
@@ -748,8 +749,8 @@ while true; do
          if [ "$GPU_T" -gt "$GPU_MIN_TEMP" ]; then
             debug_log "GPU temp ${GPU_T}°C > min temp ${GPU_MIN_TEMP}°C, calculating extra cooling"
             
-            # Calculate extra cooling needed
-            if [ "$gpu_required_percent" -gt 0 ]; then
+            # Calculate extra cooling needed - FIX: Check if gpu_required_percent is set and is a number
+            if [ -n "$gpu_required_percent" ] && [ "$gpu_required_percent" -gt 0 ]; then
                 # Start with the raw GPU fan speed
                 GPU_EXTRA_PERCENT="$gpu_required_percent"
                 debug_log "Starting with raw GPU fan speed: ${GPU_EXTRA_PERCENT}%"
@@ -801,8 +802,8 @@ while true; do
              exit 1
          fi
          
-         # If GPU needs extra cooling, increase GPU fan speeds
-         if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
+         # If GPU needs extra cooling, increase GPU fan speeds - FIX: Check if GPU_EXTRA_PERCENT is set and is a number
+         if [ -n "$GPU_EXTRA_PERCENT" ] && [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
              local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
              if [ "$gpu_final_percent" -gt 100 ]; then
                 gpu_final_percent=100
