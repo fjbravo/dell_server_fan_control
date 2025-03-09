@@ -1,5 +1,21 @@
 #!/bin/bash
 
+# Function to log status updates in the new format
+log_status() {
+    local type="$1"    # CPU Temps, All Fans, GPU Temps, GPU Fans
+    local data="$2"    # The formatted data string
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] STATUS | $type -> $data" >> $LOG_FILE
+    return 0
+}
+
+# Function to log changes in the new format
+log_change() {
+    local type="$1"    # All Fans, GPU Fans
+    local data="$2"    # The formatted data string
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] CHANGE | $type -> $data" >> $LOG_FILE
+    return 0
+}
+
 # Function for early logging (before log file is ready)
 early_log() {
     local level="$1"
@@ -31,31 +47,73 @@ early_log() {
 # Function for debug logging
 debug_log() {
     if [ "$DEBUG" = "y" ]; then
-        echo "$DATE 🔍 DEBUG: $1" >> $LOG_FILE
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] DEBUG | $1" >> $LOG_FILE
     fi
     return 0  # Always return success to avoid affecting $?
 }
 
-# Function for info logging
+# Function for info logging (legacy format, use log_status or log_change instead for new format)
 info_log() {
-    echo "$DATE ✓ $1" >> $LOG_FILE
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for warning logging
 warn_log() {
-    echo "$DATE ⚠ Warning: $1" >> $LOG_FILE
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARNING | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for error logging
 error_log() {
-    echo "$DATE ⚠ Error: $1" >> $LOG_FILE
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for configuration logging
 config_log() {
-    echo "$DATE 🔧 Config: $1" >> $LOG_FILE
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] CONFIG | $1" >> $LOG_FILE
     return 0
+}
+
+# Helper functions to format data for logging
+
+# Format CPU temperatures
+format_cpu_temps() {
+    local temp="$1"
+    echo "CPU-01: $temp"
+}
+
+# Format all fan speeds
+format_all_fans() {
+    local speed="$1"
+    echo "FAN-01: $speed - FAN-02: $speed - FAN-03: $speed - FAN-04: $speed - FAN-05: $speed - FAN-06: $speed"
+}
+
+# Format GPU temperatures
+format_gpu_temps() {
+    local temp="$1"
+    echo "GPU-01: $temp"
+}
+
+# Format GPU fan speeds
+format_gpu_fans() {
+    local fan_list="$1"
+    local speed="$2"
+    
+    # Default to showing FAN-05 and FAN-06 as GPU fans
+    if [[ "$fan_list" == "5,6" ]]; then
+        echo "FAN-05: $speed - FAN-06: $speed"
+    else
+        # For custom GPU fan configurations, build the string dynamically
+        local result=""
+        IFS=',' read -ra FANS <<< "$fan_list"
+        for fan in "${FANS[@]}"; do
+            if [ -n "$result" ]; then
+                result="$result - "
+            fi
+            result="${result}FAN-$(printf "%02d" $fan): $speed"
+        done
+        echo "$result"
+    fi
 }

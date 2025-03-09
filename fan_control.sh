@@ -78,6 +78,29 @@ if [ "$DRY_RUN" = "y" ]; then
     config_log "DRY-RUN MODE ENABLED (fan changes will be logged but not executed)"
 fi
 
+# Function to log current system status
+log_system_status() {
+    # Log CPU temperatures
+    log_status "CPU Temps" "$(format_cpu_temps "$CPU_T")"
+    
+    # Log all fan speeds
+    log_status "All Fans" "$(format_all_fans "$BASE_FAN_PERCENT")"
+    
+    # Log GPU temperatures
+    log_status "GPU Temps" "$(format_gpu_temps "$GPU_T")"
+    
+    # Log GPU fan speeds
+    if [ -n "$GPU_EXTRA_PERCENT" ] && [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
+        gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
+        if [ "$gpu_final_percent" -gt 100 ]; then
+            gpu_final_percent=100
+        fi
+        log_status "GPU Fans" "$(format_gpu_fans "$GPU_FANS" "$gpu_final_percent")"
+    else
+        log_status "GPU Fans" "$(format_gpu_fans "$GPU_FANS" "$BASE_FAN_PERCENT")"
+    fi
+}
+
 # Function to check IPMI connectivity and initialize if needed
 check_ipmi() {
     # Check if ipmitool exists
@@ -170,6 +193,9 @@ if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
        send_ipmi_command "ENABLE_MANUAL_CONTROL"
        info_log "Enabled dynamic fan control"
    fi
+   
+   # Log initial system status
+   log_system_status
 else
    error_log "Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control."
    
@@ -243,7 +269,6 @@ fi
    debug_log "Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C"
    debug_log "Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%"
 while true; do
-   DATE=$(date +%H:%M:%S)
    
    # Check if config file has changed
    check_and_reload_config
@@ -293,12 +318,12 @@ while true; do
       # Failsafe: If GPU temperature is within 10 degrees of the shutdown threshold, set all fans to 100%
       if [ "$GPU_T" -ge $((GPU_TEMP_FAIL_THRESHOLD - 10)) ]; then
          warn_log "FAILSAFE ACTIVATED! GPU Temperature ${GPU_T}°C is within 10°C of shutdown threshold (${GPU_TEMP_FAIL_THRESHOLD}°C)"
-         info_log "Setting all fans to 100% to prevent thermal shutdown"
          
          if [ "$DRY_RUN" = "y" ]; then
              debug_log "DRY-RUN: Would set all fans to 100% due to high GPU temperature"
          else
              set_all_fans_speed 100
+             log_change "All Fans" "$(format_all_fans 100)"
          fi
          
          # Set flag to skip normal fan speed calculations for this cycle
@@ -307,6 +332,9 @@ while true; do
          # Reset failsafe flag if temperature is back to safe levels
          FAILSAFE_ACTIVE=0
       fi
+      
+      # Log current system status in every loop
+      log_system_status
       
       # Calculate temperature changes for hysteresis
       CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))
@@ -324,7 +352,6 @@ while true; do
           [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]); then
          
          debug_log "Temperature change exceeds hysteresis threshold"
-         info_log "Temperature change detected (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)"
          
          # Update last temperatures for future comparisons
          CPU_T_OLD=$CPU_T
@@ -394,6 +421,9 @@ while true; do
              exit 1
          fi
          
+         # Log the change in fan speeds
+         log_change "All Fans" "$(format_all_fans "$BASE_FAN_PERCENT")"
+         
          # If GPU needs extra cooling, increase GPU fan speeds - FIX: Check if GPU_EXTRA_PERCENT is set and is a number
          if [ -n "$GPU_EXTRA_PERCENT" ] && [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
              gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
@@ -413,24 +443,14 @@ while true; do
                  
                  exit 1
              fi
-             info_log "Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)"
-         else
-             info_log "Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)"
+             
+             # Log the change in GPU fan speeds
+             log_change "GPU Fans" "$(format_gpu_fans "$GPU_FANS" "$gpu_final_percent")"
          fi
       else
          # If failsafe is active, log that it's overriding normal fan control
          if [ $FAILSAFE_ACTIVE -eq 1 ]; then
-            if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
-                info_log "FAILSAFE ACTIVE - All fans at 100% - CPU Temp: ${CPU_T}°C, GPU Temp: ${GPU_T}°C"
-            fi
-         # Otherwise log normal stable system message
-         elif [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
-            if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
-                gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
-                info_log "System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)"
-            else
-                info_log "System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)"
-            fi
+            debug_log "FAILSAFE ACTIVE - All fans at 100%"
          fi
       fi
    else
