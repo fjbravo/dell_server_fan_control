@@ -394,7 +394,9 @@ set_fan_speed() {
     IFS=',' read -ra FANS <<< "$fan_list"
     for fan in "${FANS[@]}"; do
         total_fans=$((total_fans + 1))
-        if /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 $fan $hex_speed 2>/dev/null; then
+        # Convert fan number to proper hex value (zero-indexed)
+        fan_hex=$(printf '0x%02x' $((fan - 1)))
+        if /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 $fan_hex $hex_speed 2>/dev/null; then
             success_count=$((success_count + 1))
         else
             warn_log "Failed to set fan $fan speed to $speed%, continuing with other fans"
