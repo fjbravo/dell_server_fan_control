@@ -18,13 +18,13 @@ Installation:
 To install the standard version (CPU monitoring only), run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/cpu-invalid-temperature-reading/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/install.sh)"
 ```
 
 To install the version with GPU temperature monitoring, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/cpu-invalid-temperature-reading/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/install.sh)"
 ```
 
 Notes: 
@@ -44,7 +44,7 @@ The installation script will:
 To uninstall the application, run:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/cpu-invalid-temperature-reading/uninstall.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/feature/improve-loggin/uninstall.sh)"
 ```
 
 The uninstall script will:
