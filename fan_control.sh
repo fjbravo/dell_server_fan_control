@@ -803,7 +803,7 @@ while true; do
          
          # If GPU needs extra cooling, increase GPU fan speeds - FIX: Check if GPU_EXTRA_PERCENT is set and is a number
          if [ -n "$GPU_EXTRA_PERCENT" ] && [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
-             local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
+             gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
              if [ "$gpu_final_percent" -gt 100 ]; then
                 gpu_final_percent=100
              fi
@@ -828,7 +828,7 @@ while true; do
          # Log based on LOG_FREQUENCY or if DEBUG is enabled
          if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
             if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
-                local gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
+                gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
                 info_log "System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)"
             else
                 info_log "System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)"
