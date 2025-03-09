@@ -206,7 +206,7 @@ check_ipmi() {
 
     # Disable 3rd Party PCIe Response
     early_log "INFO" "Disabling 3rd Party PCIe Response..."
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0xce 0x00 0x16 0x05 0x00 0x00 0x00 2>/dev/null; then
+    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0xce 0x00 0x16 0x05 0x00 0x00 0x00 0x05 0x00 0x01 0x00 0x00 2>/dev/null; then
         early_log "WARNING" "Failed to disable 3rd Party PCIe Response. Fan control may still work."
         # Not returning error as this is not critical for fan control
     fi
