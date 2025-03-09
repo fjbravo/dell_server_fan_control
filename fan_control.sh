@@ -3,101 +3,14 @@
 # Enable error tracing
 set -x
 
-# A simple bash script that uses lm_sensors to check CPU temps, and ipmitool to adjust fan speeds on iDRAC based systems.
-#
-# Logging functions
-# Function for early logging (before log file is ready)
-early_log() {
-    local level="$1"
-    local message="$2"
-    local date_str=$(date +%d-%m-%Y\ %H:%M:%S)
-    
-    case "$level" in
-        "ERROR")
-            echo "$date_str ⚠ Error: $message" >&2
-            ;;
-        "WARNING")
-            echo "$date_str ⚠ Warning: $message" >&2
-            ;;
-        "INFO")
-            echo "$date_str ✓ $message" >&2
-            ;;
-        "CONFIG")
-            echo "$date_str 🔧 Config: $message" >&2
-            ;;
-        "DEBUG")
-            if [ "$DEBUG" = "y" ]; then
-                echo "$date_str 🔍 DEBUG: $message" >&2
-            fi
-            ;;
-    esac
-    return 0
-}
-
-# Function for debug logging
-debug_log() {
-    if [ "$DEBUG" = "y" ]; then
-        echo "$DATE 🔍 DEBUG: $1" >> $LOG_FILE
-    fi
-    return 0  # Always return success to avoid affecting $?
-}
-
-# Function for info logging
-info_log() {
-    echo "$DATE ✓ $1" >> $LOG_FILE
-    return 0
-}
-
-# Function for warning logging
-warn_log() {
-    echo "$DATE ⚠ Warning: $1" >> $LOG_FILE
-    return 0
-}
-
-# Function for error logging
-error_log() {
-    echo "$DATE ⚠ Error: $1" >> $LOG_FILE
-    return 0
-}
-
-# Function for configuration logging
-config_log() {
-    echo "$DATE 🔧 Config: $1" >> $LOG_FILE
-    return 0
-}
-
-# Function to validate temperature readings
-is_valid_temp() {
-    local temp="$1"
-    local min="${2:-1}"  # Default min value is 1°C
-    local max="${3:-99}" # Default max value is 99°C
-    
-    # Check if temp is a number and within range
-    if [[ "$temp" =~ ^[0-9]+$ ]] && [ "$temp" -ge "$min" ] && [ "$temp" -le "$max" ]; then
-        return 0  # Valid (success)
-    else
-        return 1  # Invalid (failure)
-    fi
-}
-#
-# Copyright (C) 2022  Milkysunshine
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.{{ project }}
-#
-
-
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Source all library files
+source "$SCRIPT_DIR/lib/logging.sh"
+source "$SCRIPT_DIR/lib/ipmi_control.sh"
+source "$SCRIPT_DIR/lib/temperature.sh"
+source "$SCRIPT_DIR/lib/config.sh"
 
 # Source configuration file (looking in the same directory as the script)
 CONFIG_FILE="$SCRIPT_DIR/config.env"
@@ -109,11 +22,6 @@ else
     early_log "ERROR" "Configuration file not found at $CONFIG_FILE"
     exit 1
 fi
-
-
-
-
-
 
 # Get system date & time for timestamp and logging
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -148,6 +56,7 @@ LOG_FILE="$NEW_LOG_FILE"
 # Create symbolic link to latest log
 LATEST_LOG="$LOG_DIR/latest_fan_control.log"
 ln -sf "$LOG_FILE" "$LATEST_LOG"
+
 # Start logging
 config_log "Starting Dell IPMI fan control service..."
 config_log "iDRAC IP = $IDRAC_IP"
@@ -168,6 +77,7 @@ config_log "Latest log symlink: $LATEST_LOG"
 if [ "$DRY_RUN" = "y" ]; then
     config_log "DRY-RUN MODE ENABLED (fan changes will be logged but not executed)"
 fi
+
 # Function to check IPMI connectivity and initialize if needed
 check_ipmi() {
     # Check if ipmitool exists
@@ -177,7 +87,7 @@ check_ipmi() {
     fi
 
     # Basic connectivity test first
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD chassis power status 2>/dev/null; then
+    if ! send_ipmi_command "CHECK_POWER_STATUS"; then
         early_log "ERROR" "Cannot connect to IPMI. Check iDRAC settings:"
         early_log "ERROR" "  - IP: $IDRAC_IP"
         early_log "ERROR" "  - User: $IDRAC_USER"
@@ -194,101 +104,31 @@ check_ipmi() {
 
     # Enable IPMI LAN channel
     early_log "INFO" "Initializing IPMI LAN channel..."
-    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 access on >/dev/null 2>&1
-    /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD lan set 1 privilege 4 >/dev/null 2>&1
+    send_ipmi_command "ENABLE_LAN_CHANNEL"
+    send_ipmi_command "SET_LAN_PRIVILEGE"
 
     # Try to enable manual fan control
     early_log "INFO" "Attempting to enable manual fan control..."
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 2>/dev/null; then
+    if ! send_ipmi_command "ENABLE_MANUAL_CONTROL"; then
         early_log "ERROR" "Cannot enable manual fan control. Check iDRAC user permissions."
         return 1
     fi
 
     # Disable 3rd Party PCIe Response
     early_log "INFO" "Disabling 3rd Party PCIe Response..."
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0xce 0x00 0x16 0x05 0x00 0x00 0x00 0x05 0x00 0x01 0x00 0x00 2>/dev/null; then
+    if ! send_ipmi_command "DISABLE_PCIE_RESPONSE"; then
         early_log "WARNING" "Failed to disable 3rd Party PCIe Response. Fan control may still work."
         # Not returning error as this is not critical for fan control
     fi
 
     # Verify we can read fan status
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD sdr type fan >/dev/null 2>&1; then
+    if ! send_ipmi_command "READ_FAN_STATUS"; then
         early_log "ERROR" "Cannot read fan status. IPMI configuration may be incorrect."
         return 1
     fi
 
     return 0
 }
-
-# Function to get GPU temperature
-get_gpu_temp() {
-    # Check if nvidia-smi command exists
-    if ! command -v nvidia-smi >/dev/null 2>&1; then
-        early_log "ERROR" "'nvidia-smi' command not found. Please install NVIDIA drivers."
-        return 1
-    fi
-
-    local temp
-    temp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null)
-    
-    # Check if we got a valid temperature reading
-    if [ -z "$temp" ] || ! [[ "$temp" =~ ^[0-9]+$ ]]; then
-        early_log "ERROR" "Could not read GPU temperature. Check if NVIDIA GPU is present and drivers are loaded."
-        return 1
-    fi
-    
-    echo "$temp"
-    return 0
-}
-
-# Function to get CPU temperature
-get_cpu_temp() {
-    # Check if sensors command exists
-    if ! command -v sensors >/dev/null 2>&1; then
-        early_log "ERROR" "'sensors' command not found. Please install lm-sensors package."
-        return 1
-    fi
-
-    # Check if sensors are detected
-    if ! sensors >/dev/null 2>&1; then
-        early_log "ERROR" "No sensors detected. Please run 'sensors-detect' as root."
-        return 1
-    fi
-
-    local temp
-    temp=$(sensors coretemp-isa-0000 coretemp-isa-0001 2>/dev/null | grep Package | cut -c17-18 | sort -n | tail -1)
-    
-    # Check if we got a valid temperature reading
-    if [ -z "$temp" ]; then
-        early_log "ERROR" "Could not read CPU temperature. Check if coretemp module is loaded."
-        early_log "ERROR" "Available sensors (run 'sensors -A' for more details)"
-        return 1
-    fi
-    
-    echo "$temp"
-    return 0
-}
-
-# Function to set fan speed for specific fans
-# set_fan_speed() {
-#     local fan_ids="$1"
-#     local speed="$2"
-#     local success=0
-    
-#     # Convert speed to hexadecimal
-#     local hex_speed=$(printf '0x%02x' "$speed")
-    
-#     # Set speed for each fan ID
-#     IFS=',' read -ra FAN_ARRAY <<< "$fan_ids"
-#     for fan_id in "${FAN_ARRAY[@]}"; do
-#         if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 "$fan_id" "$hex_speed" 2>/dev/null; then
-#             error_log "Failed to set fan $fan_id speed to $speed%"
-#             success=1
-#         fi
-#     done
-    
-#     return $success
-# }
 
 # Check IPMI connectivity first
 if ! check_ipmi; then
@@ -304,7 +144,7 @@ if ! is_valid_temp "$CPU_T"; then
     if [ "$DRY_RUN" = "y" ]; then
         debug_log "DRY-RUN: Would enable stock Dell fan control due to Initial CPU temperature read failure"
     else
-        /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+        send_ipmi_command "DISABLE_MANUAL_CONTROL"
     fi
     
     exit 1
@@ -327,7 +167,7 @@ if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
    if [ "$DRY_RUN" = "y" ]; then
        debug_log "DRY-RUN: Would enable manual fan control"
    else
-       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
+       send_ipmi_command "ENABLE_MANUAL_CONTROL"
        info_log "Enabled dynamic fan control"
    fi
 else
@@ -336,7 +176,7 @@ else
    if [ "$DRY_RUN" = "y" ]; then
        debug_log "DRY-RUN: Would enable stock Dell fan control"
    else
-       /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+       send_ipmi_command "DISABLE_MANUAL_CONTROL"
    fi
    
    exit 0
@@ -348,76 +188,6 @@ GPU_T_OLD=0
 BASE_FAN_PERCENT=$FAN_MIN
 GPU_EXTRA_PERCENT=0
 FAILSAFE_ACTIVE=0
-
-# Function to set fan speed for all fans at once
-set_all_fans_speed() {
-    local speed="$1"
-    local hex_speed=$(printf '0x%02x' $speed)
-    
-    # In dry-run mode, only log what would happen
-    if [ "$DRY_RUN" = "y" ]; then
-        debug_log "DRY-RUN: Would set all fans speed to $speed%"
-        return 0
-    fi
-    
-    # Sleep for 1 second before sending IPMI command
-    sleep 1
-    
-    # Set speed for all fans with a single command
-    if ! /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 0xFF $hex_speed 2>/dev/null; then
-        error_log "Failed to set all fans speed to $speed%"
-        return 1
-    fi
-    return 0
-}
-
-# Function to set fan speed for specific fans
-set_fan_speed() {
-    local fan_list="$1"
-    local speed="$2"
-    local success_count=0
-    local total_fans=0
-    
-    # Convert fan speed to hexadecimal
-    local hex_speed=$(printf '0x%02x' $speed)
-    
-    # In dry-run mode, only log what would happen
-    if [ "$DRY_RUN" = "y" ]; then
-        debug_log "DRY-RUN: Would set fans $fan_list speed to $speed%"
-        return 0
-    fi
-    
-    # Sleep for 1 second before sending IPMI command
-    sleep 1
-    
-    # Set speed for each fan in the list
-    IFS=',' read -ra FANS <<< "$fan_list"
-    for fan in "${FANS[@]}"; do
-        total_fans=$((total_fans + 1))
-        # Convert fan number to proper hex value (zero-indexed)
-        fan_hex=$(printf '0x%02x' $((fan - 1)))
-        if /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x02 $fan_hex $hex_speed 2>/dev/null; then
-            success_count=$((success_count + 1))
-        else
-            warn_log "Failed to set fan $fan speed to $speed%, continuing with other fans"
-        fi
-    done
-    
-    # Only return failure if all fans failed
-    if [ $success_count -eq 0 ] && [ $total_fans -gt 0 ]; then
-        error_log "Failed to set any GPU fans to $speed%"
-        return 1
-    fi
-    
-    # Return success if at least one fan was set successfully
-    if [ $success_count -lt $total_fans ]; then
-        warn_log "Set $success_count out of $total_fans GPU fans to $speed%"
-    else
-        debug_log "Successfully set all $total_fans GPU fans to $speed%"
-    fi
-    
-    return 0
-}
 
 # Function to calculate fan speed based on temperature
 calculate_fan_speed() {
@@ -456,164 +226,6 @@ calculate_fan_speed() {
     echo "$fan_percent"
 }
 
-
-# Function to validate configuration
-validate_config() {
-    local error_found=0
-    
-    # Check if all required variables are set
-    local required_vars=(
-        "IDRAC_IP" "IDRAC_USER" "IDRAC_PASSWORD"  # iDRAC settings
-        "FAN_MIN"  # Fan settings
-        "CPU_MIN_TEMP" "CPU_MAX_TEMP" "CPU_TEMP_FAIL_THRESHOLD"  # CPU temperature settings
-        "GPU_MIN_TEMP" "GPU_MAX_TEMP" "GPU_TEMP_FAIL_THRESHOLD"  # GPU temperature settings
-        "GPU_FANS"  # Fan zone settings
-        "HYST_WARMING" "HYST_COOLING"  # Hysteresis settings
-        "LOOP_TIME" "LOG_FREQUENCY" "LOG_FILE"  # Operational settings
-    )
-    
-    for var in "${required_vars[@]}"; do
-        if [ -z "${!var}" ]; then
-            error_log "Required variable $var is not set"
-            error_found=1
-        fi
-    done
-    
-    # Validate numeric values and ranges
-    if ! [[ "$FAN_MIN" =~ ^[0-9]+$ ]] || [ "$FAN_MIN" -lt 0 ] || [ "$FAN_MIN" -gt 100 ]; then
-        error_log "FAN_MIN must be between 0 and 100"
-        error_found=1
-    fi
-    
-    # Validate CPU temperature settings
-    if ! [[ "$CPU_MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$CPU_MIN_TEMP" -lt 0 ] || [ "$CPU_MIN_TEMP" -gt 100 ]; then
-        error_log "CPU_MIN_TEMP must be between 0 and 100"
-        error_found=1
-    fi
-    
-    if ! [[ "$CPU_MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$CPU_MAX_TEMP" -lt 0 ] || [ "$CPU_MAX_TEMP" -gt 100 ]; then
-        error_log "CPU_MAX_TEMP must be between 0 and 100"
-        error_found=1
-    fi
-    
-    if [ "$CPU_MIN_TEMP" -ge "$CPU_MAX_TEMP" ]; then
-        error_log "CPU_MIN_TEMP must be less than CPU_MAX_TEMP"
-        error_found=1
-    fi
-    
-    if [ "$CPU_TEMP_FAIL_THRESHOLD" -le "$CPU_MAX_TEMP" ]; then
-        error_log "CPU_TEMP_FAIL_THRESHOLD must be greater than CPU_MAX_TEMP"
-        error_found=1
-    fi
-    
-    # Validate GPU temperature settings
-    if ! [[ "$GPU_MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MIN_TEMP" -lt 0 ] || [ "$GPU_MIN_TEMP" -gt 100 ]; then
-        error_log "GPU_MIN_TEMP must be between 0 and 100"
-        error_found=1
-    fi
-    
-    if ! [[ "$GPU_MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MAX_TEMP" -lt 0 ] || [ "$GPU_MAX_TEMP" -gt 100 ]; then
-        error_log "GPU_MAX_TEMP must be between 0 and 100"
-        error_found=1
-    fi
-    
-    if [ "$GPU_MIN_TEMP" -ge "$GPU_MAX_TEMP" ]; then
-        error_log "GPU_MIN_TEMP must be less than GPU_MAX_TEMP"
-        error_found=1
-    fi
-    
-    if [ "$GPU_TEMP_FAIL_THRESHOLD" -le "$GPU_MAX_TEMP" ]; then
-        error_log "GPU_TEMP_FAIL_THRESHOLD must be greater than GPU_MAX_TEMP"
-        error_found=1
-    fi
-    
-    # Validate GPU fan settings
-    if ! [[ "$GPU_FANS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-        error_log "GPU_FANS must be a comma-separated list of fan numbers"
-        error_found=1
-    fi
-    
-    if ! [[ "$LOOP_TIME" =~ ^[0-9]+$ ]] || [ "$LOOP_TIME" -lt 1 ]; then
-        error_log "LOOP_TIME must be a positive integer"
-        error_found=1
-    fi
-    
-    if ! [[ "$LOG_FREQUENCY" =~ ^[0-9]+$ ]] || [ "$LOG_FREQUENCY" -lt 1 ]; then
-        error_log "LOG_FREQUENCY must be a positive integer"
-        error_found=1
-    fi
-    
-    # Validate iDRAC IP format
-    if ! [[ "$IDRAC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        error_log "IDRAC_IP must be a valid IP address"
-        error_found=1
-    fi
-    
-    # Validate DRY_RUN setting
-    if [ -n "$DRY_RUN" ] && [ "$DRY_RUN" != "y" ] && [ "$DRY_RUN" != "n" ]; then
-        warn_log "Invalid DRY_RUN value '$DRY_RUN'. Must be 'y' or 'n'. Defaulting to 'n'."
-        DRY_RUN="n"  # Default to normal operation
-        # Not incrementing error_found since this shouldn't stop the program
-    fi
-    
-    # Validate GPU settings if GPU monitoring is enabled
-    if [ "$GPU_MONITORING" = "y" ]; then
-        # Check if all GPU variables are set
-        local gpu_vars=(
-            "GPU_MIN_TEMP" "GPU_MAX_TEMP" "GPU_FAIL_THRESHOLD"  # Temperature settings
-            "GPU_HYST_WARMING" "GPU_HYST_COOLING"  # Hysteresis settings
-            "GPU_FAN_IDS"  # Fan IDs
-        )
-        
-        for var in "${gpu_vars[@]}"; do
-            if [ -z "${!var}" ]; then
-                error_log "Required GPU variable $var is not set"
-                error_found=1
-            fi
-        done
-        
-        # Validate GPU temperature ranges
-        if ! [[ "$GPU_MIN_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MIN_TEMP" -lt 0 ] || [ "$GPU_MIN_TEMP" -gt 100 ]; then
-            error_log "GPU_MIN_TEMP must be between 0 and 100"
-            error_found=1
-        fi
-        
-        if ! [[ "$GPU_MAX_TEMP" =~ ^[0-9]+$ ]] || [ "$GPU_MAX_TEMP" -lt 0 ] || [ "$GPU_MAX_TEMP" -gt 100 ]; then
-            error_log "GPU_MAX_TEMP must be between 0 and 100"
-            error_found=1
-        fi
-        
-        if [ "$GPU_MIN_TEMP" -ge "$GPU_MAX_TEMP" ]; then
-            error_log "GPU_MIN_TEMP must be less than GPU_MAX_TEMP"
-            error_found=1
-        fi
-        
-        if [ "$GPU_FAIL_THRESHOLD" -le "$GPU_MAX_TEMP" ]; then
-            error_log "GPU_FAIL_THRESHOLD must be greater than GPU_MAX_TEMP"
-            error_found=1
-        fi
-        
-        # Validate GPU fan IDs format (comma-separated numbers)
-        if ! [[ "$GPU_FAN_IDS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-            error_log "GPU_FAN_IDS must be comma-separated numbers"
-            error_found=1
-        fi
-    fi
-    
-    return $error_found
-}
-
-# Function to safely get file modification time
-get_mod_time() {
-    local mod_time
-    if ! mod_time=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null); then
-        error_log "Cannot read modification time of $CONFIG_FILE"
-        return 1
-    fi
-    echo "$mod_time"
-    return 0
-}
-
 # Validate initial configuration
 if ! validate_config; then
     error_log "Initial configuration is invalid. Please check config.env"
@@ -625,63 +237,6 @@ if ! LAST_MOD_TIME=$(get_mod_time); then
     error_log "Cannot access config file. Using default settings."
     LAST_MOD_TIME=0
 fi
-
-# Function to check if config has changed and reload if needed
-check_and_reload_config() {
-    local current_mod_time
-    
-    # Check if config file exists and is readable
-    if [ ! -f "$CONFIG_FILE" ] || [ ! -r "$CONFIG_FILE" ]; then
-        error_log "Config file $CONFIG_FILE is not accessible"
-        return 1
-    fi
-    
-    # Get current modification time
-    if ! current_mod_time=$(get_mod_time); then
-        return 1
-    fi
-    
-    if [ "$current_mod_time" != "$LAST_MOD_TIME" ]; then
-        config_log "Configuration file changed, reloading settings..."
-        
-        # Create a temporary file for the new configuration
-        local temp_config
-        temp_config=$(mktemp)
-        if [ ! -f "$temp_config" ]; then
-            error_log "Cannot create temporary file for config validation"
-            return 1
-        fi
-        
-        # Copy current environment variables that we want to preserve
-        declare -p > "$temp_config"
-        
-        # Source the new config file
-        if ! source "$CONFIG_FILE"; then
-            error_log "Failed to load new configuration"
-            rm -f "$temp_config"
-            return 1
-        fi
-        
-        # Validate the new configuration
-        if ! validate_config; then
-            error_log "New configuration is invalid. Reverting to previous settings."
-            source "$temp_config"
-            rm -f "$temp_config"
-            return 1
-        fi
-        
-        # Clean up and update modification time
-        rm -f "$temp_config"
-        LAST_MOD_TIME=$current_mod_time
-        config_log "Configuration reloaded successfully"
-    fi
-}
-
-# Initialize variables
-CPU_T_OLD=0
-GPU_T_OLD=0
-BASE_FAN_PERCENT=$FAN_MIN
-GPU_EXTRA_PERCENT=0
 
 # Beginning of monitoring and control loop
    # Debug: Log current settings at start of loop
@@ -702,7 +257,7 @@ while true; do
        if [ "$DRY_RUN" = "y" ]; then
            debug_log "DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure"
        else
-           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+           send_ipmi_command "DISABLE_MANUAL_CONTROL"
        fi
        
        exit 1
@@ -818,7 +373,7 @@ while true; do
             if [ "$DRY_RUN" = "y" ]; then
                 debug_log "DRY-RUN: Would verify manual fan control"
             else
-                /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x00 > /dev/null
+                send_ipmi_command "ENABLE_MANUAL_CONTROL"
                 info_log "Manual fan control verified"
             fi
          else
@@ -833,7 +388,7 @@ while true; do
              if [ "$DRY_RUN" = "y" ]; then
                  debug_log "DRY-RUN: Would enable stock Dell fan control due to fan speed setting failure"
              else
-                 /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+                 send_ipmi_command "DISABLE_MANUAL_CONTROL"
              fi
              
              exit 1
@@ -853,7 +408,7 @@ while true; do
                  if [ "$DRY_RUN" = "y" ]; then
                      debug_log "DRY-RUN: Would enable stock Dell fan control due to GPU fan speed setting failure"
                  else
-                     /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
+                     send_ipmi_command "DISABLE_MANUAL_CONTROL"
                  fi
                  
                  exit 1
@@ -885,7 +440,7 @@ while true; do
       if [ "$DRY_RUN" = "y" ]; then
           debug_log "DRY-RUN: Would enable stock Dell fan control due to invalid temperature readings"
       else
-          /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 >> $LOG_FILE
+          send_ipmi_command "DISABLE_MANUAL_CONTROL"
       fi
       
       exit 0
