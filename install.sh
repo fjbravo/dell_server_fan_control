@@ -150,14 +150,7 @@ backup_existing() {
         
         # Backup all files from install directory
         if [ -d "$INSTALL_DIR" ]; then
-            # Create lib directory in backup
-            if [ -d "$INSTALL_DIR/lib" ]; then
-                mkdir -p "$BACKUP_DIR/lib"
-                cp "$INSTALL_DIR/lib/"* "$BACKUP_DIR/lib/" 2>/dev/null || true
-                echo "- Backed up lib files"
-            fi
-            # Backup main files
-            cp "$INSTALL_DIR"/* "$BACKUP_DIR/" 2>/dev/null || true
+            cp -r "$INSTALL_DIR/"* "$BACKUP_DIR/" 2>/dev/null || true
             echo "- Backed up all files from $INSTALL_DIR"
         fi
         
