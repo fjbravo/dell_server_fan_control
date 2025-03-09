@@ -347,6 +347,7 @@ CPU_T_OLD=0
 GPU_T_OLD=0
 BASE_FAN_PERCENT=$FAN_MIN
 GPU_EXTRA_PERCENT=0
+FAILSAFE_ACTIVE=0
 
 # Function to set fan speed for all fans at once
 set_all_fans_speed() {
@@ -732,6 +733,24 @@ while true; do
          exit 0
       fi
       
+      # Failsafe: If GPU temperature is within 10 degrees of the shutdown threshold, set all fans to 100%
+      if [ "$GPU_T" -ge $((GPU_TEMP_FAIL_THRESHOLD - 10)) ]; then
+         warn_log "FAILSAFE ACTIVATED! GPU Temperature ${GPU_T}°C is within 10°C of shutdown threshold (${GPU_TEMP_FAIL_THRESHOLD}°C)"
+         info_log "Setting all fans to 100% to prevent thermal shutdown"
+         
+         if [ "$DRY_RUN" = "y" ]; then
+             debug_log "DRY-RUN: Would set all fans to 100% due to high GPU temperature"
+         else
+             set_all_fans_speed 100
+         fi
+         
+         # Set flag to skip normal fan speed calculations for this cycle
+         FAILSAFE_ACTIVE=1
+      else
+         # Reset failsafe flag if temperature is back to safe levels
+         FAILSAFE_ACTIVE=0
+      fi
+      
       # Calculate temperature changes for hysteresis
       CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))
       CPU_CHANGE_WARMING=$((CPU_T-CPU_T_OLD))
@@ -742,9 +761,10 @@ while true; do
       debug_log "CPU - Cooling: ${CPU_CHANGE_COOLING}°C, Warming: ${CPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)"
       debug_log "GPU - Cooling: ${GPU_CHANGE_COOLING}°C, Warming: ${GPU_CHANGE_WARMING}°C (threshold: ${HYST_COOLING}°C, ${HYST_WARMING}°C)"
 
-      # Check if temperature changes exceed hysteresis thresholds
-      if [ $((CPU_T_OLD-CPU_T)) -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
-         [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]; then
+      # Check if temperature changes exceed hysteresis thresholds and failsafe is not active
+      if [ $FAILSAFE_ACTIVE -eq 0 ] && \
+         ([ $((CPU_T_OLD-CPU_T)) -ge $HYST_COOLING ] || [ $((CPU_T-CPU_T_OLD)) -ge $HYST_WARMING ] || \
+          [ $((GPU_T_OLD-GPU_T)) -ge $HYST_COOLING ] || [ $((GPU_T-GPU_T_OLD)) -ge $HYST_WARMING ]); then
          
          debug_log "Temperature change exceeds hysteresis threshold"
          info_log "Temperature change detected (CPU: ${CPU_T}°C, GPU: ${GPU_T}°C)"
@@ -841,8 +861,13 @@ while true; do
              info_log "Updated - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (No extra cooling needed)"
          fi
       else
-         # Log based on LOG_FREQUENCY or if DEBUG is enabled
-         if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
+         # If failsafe is active, log that it's overriding normal fan control
+         if [ $FAILSAFE_ACTIVE -eq 1 ]; then
+            if [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
+                info_log "FAILSAFE ACTIVE - All fans at 100% - CPU Temp: ${CPU_T}°C, GPU Temp: ${GPU_T}°C"
+            fi
+         # Otherwise log normal stable system message
+         elif [ "$DEBUG" = "y" ] || [ "$((CONTROL % LOG_FREQUENCY))" -eq 0 ]; then
             if [ "$GPU_EXTRA_PERCENT" -gt 0 ]; then
                 gpu_final_percent=$((BASE_FAN_PERCENT + GPU_EXTRA_PERCENT))
                 info_log "System stable - CPU Temp: ${CPU_T}°C (All Fans: ${BASE_FAN_PERCENT}%), GPU Temp: ${GPU_T}°C (GPU Fans: +${GPU_EXTRA_PERCENT}% = ${gpu_final_percent}%)"
