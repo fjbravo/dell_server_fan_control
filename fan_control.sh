@@ -683,8 +683,7 @@ while true; do
        if [ "$DRY_RUN" = "y" ]; then
            debug_log "DRY-RUN: Would enable stock Dell fan control due to CPU temperature read failure"
        else
-           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30
-0x01 0x01 2>/dev/null
+           /usr/bin/ipmitool -I lanplus -H $IDRAC_IP -U $IDRAC_USER -P $IDRAC_PASSWORD raw 0x30 0x30 0x01 0x01 2>/dev/null
        fi
        
        exit 1
@@ -742,7 +741,7 @@ while true; do
          BASE_FAN_PERCENT=$(calculate_fan_speed "$CPU_T" "$CPU_MIN_TEMP" "$CPU_MAX_TEMP")
          
          # Calculate GPU fan speed without applying FAN_MIN limit
-         local gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP" "n")
+         gpu_required_percent=$(calculate_fan_speed "$GPU_T" "$GPU_MIN_TEMP" "$GPU_MAX_TEMP" "n")
          debug_log "Raw GPU fan speed calculation: ${gpu_required_percent}% (temp: ${GPU_T}°C, range: ${GPU_MIN_TEMP}°C-${GPU_MAX_TEMP}°C)"
          
          # Calculate extra cooling needed for GPU
