@@ -244,6 +244,7 @@ if ! LAST_MOD_TIME=$(get_mod_time); then
 fi
 
 # Beginning of monitoring and control loop
+info_log "Beginning of monitoring and control loop"
    # Debug: Log current settings at start of loop
    debug_log "Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C"
    debug_log "Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%"
