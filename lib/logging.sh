@@ -28,20 +28,20 @@ log_status() {
 
 # Function to log the complete system status
 log_system_status() {
-    local cpu_temp="$1"
-    local gpu_temp="$2"
+    local cpu_temps="$1"
+    local gpu_temps="$2"
     local base_fan_percent="$3"
     local gpu_fans="$4"
     local gpu_extra_percent="${5:-0}"
     
     # Log CPU temperatures
-    log_status "CPU Temps" "$(format_cpu_temps "$cpu_temp")"
+    log_status "CPU Temps" "$(format_cpu_temps "$cpu_temps")"
     
     # Log all fan speeds
     log_status "All Fans" "$(format_all_fans "$base_fan_percent")"
     
     # Log GPU temperatures
-    log_status "GPU Temps" "$(format_gpu_temps "$gpu_temp")"
+    log_status "GPU Temps" "$(format_gpu_temps "$gpu_temps")"
     
     # Log GPU fan speeds
     if [ -n "$gpu_extra_percent" ] && [ "$gpu_extra_percent" -gt 0 ]; then
@@ -148,8 +148,23 @@ config_log() {
 
 # Format CPU temperatures
 format_cpu_temps() {
-    local temp="$1"
-    echo "CPU-01: $temp"
+    local temps="$1"
+    local result=""
+    local cpu_num=1
+    
+    # Split temperatures into array
+    IFS=',' read -ra CPU_TEMPS <<< "$temps"
+    
+    # Format each CPU temperature
+    for temp in "${CPU_TEMPS[@]}"; do
+        if [ -n "$result" ]; then
+            result="$result - "
+        fi
+        result="${result}CPU-$(printf "%02d" $cpu_num): $temp"
+        ((cpu_num++))
+    done
+    
+    echo "$result"
 }
 
 # Format all fan speeds
@@ -160,8 +175,23 @@ format_all_fans() {
 
 # Format GPU temperatures
 format_gpu_temps() {
-    local temp="$1"
-    echo "GPU-01: $temp"
+    local temps="$1"
+    local result=""
+    local gpu_num=1
+    
+    # Split temperatures into array
+    IFS=',' read -ra GPU_TEMPS <<< "$temps"
+    
+    # Format each GPU temperature
+    for temp in "${GPU_TEMPS[@]}"; do
+        if [ -n "$result" ]; then
+            result="$result - "
+        fi
+        result="${result}GPU-$(printf "%02d" $gpu_num): $temp"
+        ((gpu_num++))
+    done
+    
+    echo "$result"
 }
 
 # Format GPU fan speeds

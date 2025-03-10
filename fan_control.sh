@@ -166,8 +166,12 @@ if is_valid_temp "$CPU_T" && is_valid_temp "$GPU_T"; then
        info_log "Enabled dynamic fan control"
    fi
    
-   # Log initial system status
-   log_system_status "$CPU_T" "$GPU_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
+# Get all CPU and GPU temperatures for logging
+CPU_ALL_T=$(get_all_cpu_temps)
+GPU_ALL_T=$(get_all_gpu_temps)
+
+# Log initial system status
+log_system_status "$CPU_ALL_T" "$GPU_ALL_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
 else
    error_log "Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control."
    
@@ -305,8 +309,12 @@ while true; do
          FAILSAFE_ACTIVE=0
       fi
       
+      # Get all CPU and GPU temperatures for logging
+      CPU_ALL_T=$(get_all_cpu_temps)
+      GPU_ALL_T=$(get_all_gpu_temps)
+      
       # Log current system status in every loop
-      log_system_status "$CPU_T" "$GPU_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
+      log_system_status "$CPU_ALL_T" "$GPU_ALL_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
       
       # Calculate temperature changes for hysteresis
       CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))
