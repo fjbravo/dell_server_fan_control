@@ -1,9 +1,27 @@
 #!/bin/bash
 
+# Function to check log file size and rotate if needed
+check_log_size() {
+    if [ -f "$LOG_FILE" ]; then
+        # Get file size in bytes
+        local size=$(stat -c%s "$LOG_FILE" 2>/dev/null || stat -f%z "$LOG_FILE" 2>/dev/null)
+        if [ -n "$size" ] && [ "$size" -gt $((5 * 1024 * 1024)) ]; then  # 5MB in bytes
+            local timestamp=$(date +%Y%m%d_%H%M%S)
+            mv "$LOG_FILE" "${LOG_FILE}_${timestamp}"
+            touch "$LOG_FILE" 2>/dev/null || true
+        fi
+    fi
+    return 0
+}
+
 # Function to log status updates in the new format
 log_status() {
     local type="$1"    # CPU Temps, All Fans, GPU Temps, GPU Fans
     local data="$2"    # The formatted data string
+    
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] STATUS | $type -> $data" >> $LOG_FILE
     return 0
 }
@@ -43,6 +61,10 @@ log_system_status() {
 log_change() {
     local type="$1"    # All Fans, GPU Fans
     local data="$2"    # The formatted data string
+    
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] CHANGE | $type -> $data" >> $LOG_FILE
     return 0
 }
@@ -78,6 +100,9 @@ early_log() {
 # Function for debug logging
 debug_log() {
     if [ "$DEBUG" = "y" ]; then
+        # Check log size before writing
+        check_log_size
+        
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] DEBUG | $1" >> $LOG_FILE
     fi
     return 0  # Always return success to avoid affecting $?
@@ -85,24 +110,36 @@ debug_log() {
 
 # Function for info logging (legacy format, use log_status or log_change instead for new format)
 info_log() {
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for warning logging
 warn_log() {
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARNING | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for error logging
 error_log() {
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR | $1" >> $LOG_FILE
     return 0
 }
 
 # Function for configuration logging
 config_log() {
+    # Check log size before writing
+    check_log_size
+    
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] CONFIG | $1" >> $LOG_FILE
     return 0
 }

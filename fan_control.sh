@@ -40,22 +40,16 @@ if ! [ -w "$LOG_DIR" ]; then
     exit 1
 fi
 
-# Create new log file with timestamp
-LOG_FILE_BASE=$(basename "$LOG_FILE")
-LOG_FILE_NAME="${LOG_FILE_BASE%.*}"  # Remove extension if any
-LOG_FILE_EXT="${LOG_FILE_BASE##*.}"  # Get extension if any
-if [ "$LOG_FILE_NAME" = "$LOG_FILE_EXT" ]; then
-    # No extension in original LOG_FILE
-    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}"
-else
-    # Has extension
-    NEW_LOG_FILE="$LOG_DIR/${LOG_FILE_NAME}_${TIMESTAMP}.${LOG_FILE_EXT}"
+# Check if log file exists and rename it with timestamp
+if [ -f "$LOG_FILE" ]; then
+    # Get timestamp for backup
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    # Move existing log to backup with timestamp
+    mv "$LOG_FILE" "${LOG_FILE}_${timestamp}"
 fi
-LOG_FILE="$NEW_LOG_FILE"
 
-# Create symbolic link to latest log
-LATEST_LOG="$LOG_DIR/latest_fan_control.log"
-ln -sf "$LOG_FILE" "$LATEST_LOG"
+# Create log file directory if it doesn't exist
+touch "$LOG_FILE" 2>/dev/null || true
 
 # Start logging
 config_log "Starting Dell IPMI fan control service..."
@@ -73,7 +67,6 @@ config_log "Degrees warmer before increasing fan speed = ${HYST_WARMING}°C"
 config_log "Degrees cooler before decreasing fan speed = ${HYST_COOLING}°C"
 config_log "Time between temperature checks = $LOOP_TIME seconds"
 config_log "Current log file: $LOG_FILE"
-config_log "Latest log symlink: $LATEST_LOG"
 if [ "$DRY_RUN" = "y" ]; then
     config_log "DRY-RUN MODE ENABLED (fan changes will be logged but not executed)"
 fi
@@ -244,7 +237,6 @@ if ! LAST_MOD_TIME=$(get_mod_time); then
 fi
 
 # Beginning of monitoring and control loop
-info_log "Beginning of monitoring and control loop"
    # Debug: Log current settings at start of loop
    debug_log "Settings - FAN_MIN: $FAN_MIN%, CPU_MIN_TEMP: ${CPU_MIN_TEMP}°C, CPU_MAX_TEMP: ${CPU_MAX_TEMP}°C, GPU_MIN_TEMP: ${GPU_MIN_TEMP}°C, GPU_MAX_TEMP: ${GPU_MAX_TEMP}°C"
    debug_log "Previous state - CPU_OLD: ${CPU_T_OLD}°C, GPU_OLD: ${GPU_T_OLD}°C, BASE_FAN: ${BASE_FAN_PERCENT}%, GPU_EXTRA: ${GPU_EXTRA_PERCENT}%"
