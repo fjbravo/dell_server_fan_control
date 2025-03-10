@@ -86,7 +86,7 @@ download_files() {
     mkdir -p "$TEMP_DIR"
     cd "$TEMP_DIR" || exit 1
     
-    # Download required files
+    # Download main files
     for file in fan_control.sh shutdown_fan_control.sh dell_ipmi_fan_control.service config.env; do
         echo "- Downloading $file..."
         if ! curl -L -o "$file" "$REPO_URL/$file"; then
@@ -103,9 +103,28 @@ download_files() {
         fi
         echo "  Successfully downloaded $file"
     done
+
+    # Download lib directory files
+    mkdir -p "$TEMP_DIR/lib"
+    for file in logging.sh ipmi_control.sh temperature.sh config.sh; do
+        echo "- Downloading lib/$file..."
+        if ! curl -L -o "lib/$file" "$REPO_URL/lib/$file"; then
+            echo "Error: Failed to download lib/$file"
+            cd - > /dev/null || true
+            exit 1
+        fi
+        
+        # Verify file was downloaded and has content
+        if [ ! -s "lib/$file" ]; then
+            echo "Error: Downloaded file lib/$file is empty"
+            cd - > /dev/null || true
+            exit 1
+        fi
+        echo "  Successfully downloaded lib/$file"
+    done
     
     # Make scripts executable
-    chmod +x fan_control.sh shutdown_fan_control.sh
+    chmod +x fan_control.sh shutdown_fan_control.sh lib/*.sh
     cd - > /dev/null || exit 1
     echo "All files downloaded successfully"
 }
@@ -131,7 +150,7 @@ backup_existing() {
         
         # Backup all files from install directory
         if [ -d "$INSTALL_DIR" ]; then
-            cp "$INSTALL_DIR"/* "$BACKUP_DIR/" 2>/dev/null || true
+            cp -r "$INSTALL_DIR/"* "$BACKUP_DIR/" 2>/dev/null || true
             echo "- Backed up all files from $INSTALL_DIR"
         fi
         
@@ -153,10 +172,14 @@ install_files() {
     # Create installation directory if it doesn't exist
     mkdir -p "$INSTALL_DIR"
     
-    # Copy files
+    # Copy main files
     cp "$TEMP_DIR/fan_control.sh" "$INSTALL_DIR/"
     cp "$TEMP_DIR/shutdown_fan_control.sh" "$INSTALL_DIR/"
     cp "$TEMP_DIR/dell_ipmi_fan_control.service" /etc/systemd/system/
+
+    # Copy lib files
+    mkdir -p "$INSTALL_DIR/lib"
+    cp "$TEMP_DIR/lib/"* "$INSTALL_DIR/lib/"
     
     # Handle config file
     if [ "$IS_UPDATE" = true ]; then
