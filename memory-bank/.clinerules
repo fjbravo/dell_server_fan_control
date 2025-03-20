@@ -1,0 +1,155 @@
+# Dell Server Fan Control - Project Intelligence
+
+This file captures important patterns, preferences, and project intelligence that will help me work more effectively with this project. It serves as a learning journal that documents key insights that aren't immediately obvious from the code alone.
+
+## Critical Implementation Paths
+
+1. **Temperature Monitoring Chain**
+   - `get_cpu_temps` → `get_cpu_temp` → temperature processing
+   - `get_gpu_temps` → `get_gpu_temp` → temperature processing
+   - Both paths must handle errors gracefully and provide fallbacks
+
+2. **Fan Speed Control Chain**
+   - Temperature readings → hysteresis check → `calculate_fan_speed` → `set_all_fans_speed`/`set_fan_speed` → IPMI commands
+   - Critical to maintain proper error handling throughout this chain
+
+3. **Configuration Management**
+   - Config file loading → validation → application → periodic checking for changes
+   - Must preserve state during configuration reloads
+
+## User Preferences and Workflow
+
+1. **Configuration Priorities**
+   - Users prioritize noise reduction while maintaining safe temperatures
+   - Hysteresis settings are critical for user satisfaction (prevent fan oscillation)
+   - Most users prefer to set and forget, with minimal ongoing maintenance
+
+2. **Common Configuration Patterns**
+   - Setting FAN_MIN to 12-15% is common to maintain minimal airflow
+   - CPU_MIN_TEMP typically set to 40-45°C for desktop-like environments
+   - CPU_MAX_TEMP typically set to 75-80°C for most server workloads
+   - HYST_WARMING/COOLING values of 3-5°C work well for most setups
+
+3. **Installation Workflow**
+   - Users typically install via the curl-to-bash one-liner
+   - Most users need to modify iDRAC settings before installation
+   - Configuration customization is usually done after initial installation and testing
+
+## Project-Specific Patterns
+
+1. **Error Handling Philosophy**
+   - Always fail safely toward Dell's default fan control
+   - Log detailed error information before taking recovery actions
+   - Validate all user inputs and external data before use
+
+2. **Logging Conventions**
+   - Use symbols to indicate log entry types:
+     - ✓ Normal operation
+     - ⚡ Changes detected
+     - ↑↓ Fan speed adjustments
+     - ⚠ Warnings and critical events
+     - ⚙ Configuration changes and status
+     - 🔍 Debug information (when DEBUG="y")
+
+3. **Fan Control Approach**
+   - All fans get a base speed determined by CPU temperature
+   - GPU-designated fans get additional speed when GPU requires more cooling
+   - Fan speeds only change when temperature changes exceed hysteresis thresholds
+
+4. **Configuration Validation**
+   - All numeric values must be within reasonable ranges
+   - Temperature thresholds must maintain proper relationships (MIN < MAX < FAIL)
+   - Fan IDs must be properly formatted as comma-separated numbers
+
+## Known Challenges
+
+1. **Hardware Variations**
+   - Different Dell server models may have different fan numbering schemes
+   - Some Dell servers have minimum fan speed thresholds enforced by firmware
+   - iDRAC versions may have slight differences in IPMI command behavior
+
+2. **Sensor Reliability**
+   - Some systems may have unreliable or inconsistent temperature sensors
+   - GPU temperature reporting may fail intermittently on some systems
+   - Multiple CPU systems need special handling to find the highest temperature
+
+3. **IPMI Communication**
+   - IPMI over LAN can occasionally experience timeouts or failures
+   - Some iDRAC configurations may restrict IPMI commands
+   - Network issues can affect reliability of fan control commands
+
+4. **Configuration Challenges**
+   - Finding optimal hysteresis settings can require experimentation
+   - Identifying which fans correspond to which components can be difficult
+   - Balancing noise reduction with adequate cooling requires tuning
+
+## Evolution of Project Decisions
+
+1. **Initial Implementation**
+   - Started with basic CPU temperature monitoring only
+   - Used simple linear fan speed calculation
+   - Limited error handling and recovery
+
+2. **GPU Support Addition**
+   - Added GPU temperature monitoring with automatic detection
+   - Implemented zone-based cooling for GPU-specific fans
+   - Enhanced error handling with graceful fallbacks
+
+3. **Reliability Improvements**
+   - Added configuration validation
+   - Implemented dynamic configuration reloading
+   - Enhanced logging with clearer status indicators
+   - Added emergency shutdown for critical temperatures
+
+4. **Future Direction**
+   - Moving toward more sophisticated monitoring and control
+   - Considering web-based interface for easier configuration
+   - Exploring more advanced fan curve options
+
+## Tool Usage Patterns
+
+1. **Installation and Management**
+   - `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/fjbravo/dell_server_fan_control/main/install.sh)"` for installation
+   - `sudo systemctl status/start/stop/restart dell_ipmi_fan_control` for service management
+   - `sudo tail -f /var/log/latest_fan_control.log` for real-time monitoring
+
+2. **Configuration**
+   - `sudo nano /usr/local/bin/dell-fan-control/config.env` for configuration editing
+   - Configuration changes take effect within 60 seconds without service restart
+
+3. **Monitoring**
+   - `sudo journalctl -fu dell_ipmi_fan_control` for service logs
+   - `ipmitool sensor list | grep Fan` to check current fan speeds
+   - `sensors` to check current CPU temperatures
+   - `nvidia-smi` to check current GPU temperatures
+
+4. **Troubleshooting**
+   - Check iDRAC connectivity: `ipmitool -I lanplus -H <IP> -U <USER> -P <PASS> chassis power status`
+   - Test manual fan control: `ipmitool -I lanplus -H <IP> -U <USER> -P <PASS> raw 0x30 0x30 0x01 0x00`
+   - Restore Dell control: `ipmitool -I lanplus -H <IP> -U <USER> -P <PASS> raw 0x30 0x30 0x01 0x01`
+
+## Code Style and Conventions
+
+1. **Bash Scripting Style**
+   - Use functions for modular code organization
+   - Validate all inputs at function entry points
+   - Use meaningful variable names with consistent naming convention
+   - Include comments explaining complex logic or Dell-specific commands
+
+2. **Error Handling Pattern**
+   - Functions return non-zero exit codes on failure
+   - Check return codes after critical operations
+   - Log detailed error messages before taking recovery actions
+   - Use conditional execution with `&&` and `||` for simple error handling
+
+3. **Configuration Style**
+   - Use all-caps for configuration variables
+   - Include descriptive comments for each configuration option
+   - Group related configuration options together
+   - Provide sensible defaults that work for most common scenarios
+
+4. **Logging Pattern**
+   - Include timestamps on all log entries
+   - Use consistent formatting for similar types of log entries
+   - Include both human-readable descriptions and technical details
+   - Use different symbols/prefixes to indicate entry types
