@@ -9,6 +9,15 @@ mqtt_is_configured() {
     return 0  # Configured
 }
 
+# MQTT timeout in seconds (how long to wait for broker connection)
+MQTT_TIMEOUT=3
+
+# Maximum consecutive MQTT failures before disabling
+MQTT_MAX_FAILURES=3
+
+# Track consecutive MQTT failures
+MQTT_FAILURE_COUNT=0
+
 # Function to publish a message to an MQTT topic
 mqtt_publish() {
     local topic="$1"
@@ -20,6 +29,12 @@ mqtt_publish() {
         return 0
     fi
     
+    # Check if MQTT has been disabled due to failures
+    if [ "$MQTT_FAILURE_COUNT" -ge "$MQTT_MAX_FAILURES" ]; then
+        debug_log "MQTT publishing disabled due to consecutive failures"
+        return 0
+    fi
+    
     # Check if mosquitto_pub command exists
     if ! command -v mosquitto_pub >/dev/null 2>&1; then
         warn_log "mosquitto_pub command not found. MQTT publishing disabled."
@@ -28,6 +43,9 @@ mqtt_publish() {
     
     # Build the base command
     local mqtt_cmd="mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT"
+    
+    # Add timeout to prevent hanging
+    mqtt_cmd="$mqtt_cmd -W $MQTT_TIMEOUT"
     
     # Add authentication if configured
     if [ -n "$MQTT_USER" ] && [ -n "$MQTT_PASS" ]; then
@@ -64,14 +82,40 @@ mqtt_publish() {
         return 0
     fi
     
-    # Use eval to properly handle the quoted arguments
-    if ! eval $mqtt_cmd >/dev/null 2>&1; then
-        warn_log "Failed to publish to MQTT topic: $full_topic"
-        return 1
+    # Run in background to prevent blocking
+    (
+        # Use eval to properly handle the quoted arguments
+        if ! eval $mqtt_cmd >/dev/null 2>&1; then
+            warn_log "Failed to publish to MQTT topic: $full_topic"
+            # Increment failure counter (atomic operation)
+            echo "$((MQTT_FAILURE_COUNT + 1))" > /tmp/mqtt_failure_count.$$
+            return 1
+        else
+            # Reset failure counter on success
+            echo "0" > /tmp/mqtt_failure_count.$$
+            debug_log "Published to MQTT topic: $full_topic"
+            return 0
+        fi
+    ) &
+    
+    # Update failure counter from background process if file exists
+    if [ -f "/tmp/mqtt_failure_count.$$" ]; then
+        MQTT_FAILURE_COUNT=$(cat /tmp/mqtt_failure_count.$$)
+        rm -f /tmp/mqtt_failure_count.$$
+        
+        # Log if MQTT has been disabled
+        if [ "$MQTT_FAILURE_COUNT" -ge "$MQTT_MAX_FAILURES" ]; then
+            warn_log "MQTT publishing disabled after $MQTT_MAX_FAILURES consecutive failures"
+        fi
     fi
     
-    debug_log "Published to MQTT topic: $full_topic"
     return 0
+}
+
+# Function to reset MQTT failure counter
+mqtt_reset_failures() {
+    MQTT_FAILURE_COUNT=0
+    debug_log "MQTT failure counter reset"
 }
 
 # Function to publish system metrics
@@ -86,6 +130,17 @@ mqtt_publish_metrics() {
     # Check if MQTT is configured
     if ! mqtt_is_configured; then
         return 0
+    fi
+    
+    # Check if MQTT has been disabled due to failures
+    if [ "$MQTT_FAILURE_COUNT" -ge "$MQTT_MAX_FAILURES" ]; then
+        # Try to reset every 10 minutes (60 cycles with default 10s loop time)
+        if [ "$((RANDOM % 60))" -eq 0 ]; then
+            mqtt_reset_failures
+            debug_log "Attempting to re-enable MQTT publishing"
+        else
+            return 0
+        fi
     fi
     
     # Create JSON payload
@@ -171,6 +226,14 @@ mqtt_publish_status() {
     # Check if MQTT is configured
     if ! mqtt_is_configured; then
         return 0
+    fi
+    
+    # Check if MQTT has been disabled due to failures
+    if [ "$MQTT_FAILURE_COUNT" -ge "$MQTT_MAX_FAILURES" ]; then
+        # For status messages, always try to send regardless of failure count
+        # as these are typically important state changes
+        mqtt_reset_failures
+        debug_log "Attempting to send status message despite previous failures"
     fi
     
     # Create JSON payload

@@ -24,6 +24,15 @@ else
     exit 1
 fi
 
+# Set default values for MQTT timeout settings if not defined in config
+if [ -z "$MQTT_TIMEOUT" ]; then
+    MQTT_TIMEOUT=3
+fi
+
+if [ -z "$MQTT_MAX_FAILURES" ]; then
+    MQTT_MAX_FAILURES=3
+fi
+
 # Get system date & time for timestamp and logging
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DATE=$(date +%d-%m-%Y\ %H:%M:%S)

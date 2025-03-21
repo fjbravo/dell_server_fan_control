@@ -179,8 +179,53 @@ The system implements a hierarchical error handling strategy:
    - Temperature reading failures trigger fallback strategies
    - Configuration errors revert to previous working configuration
    - IPMI communication failures are detected and handled
+   - MQTT failures use circuit breaker pattern to prevent blocking
 
 3. **System-Level Safety**
    - Critical failures restore Dell's default fan control
    - Emergency shutdown for dangerous temperature conditions
    - Service restarts automatically after non-critical failures
+   - Non-critical services (like MQTT) degrade gracefully without affecting core functionality
+
+## Resilience Patterns
+
+### 1. Circuit Breaker Pattern (MQTT)
+
+To prevent non-critical services from impacting core functionality, the system implements a circuit breaker pattern:
+
+```mermaid
+flowchart TD
+    A[MQTT Request] --> B{Circuit Open?}
+    B -->|Yes| C[Skip Operation]
+    B -->|No| D[Execute with Timeout]
+    D -->|Success| E[Reset Failure Count]
+    D -->|Failure| F[Increment Failure Count]
+    F --> G{Failure Count > Threshold?}
+    G -->|Yes| H[Open Circuit]
+    G -->|No| I[Continue Normal Operation]
+    H --> J[Periodic Reset Attempts]
+    J --> A
+```
+
+This pattern:
+- Prevents hung MQTT operations from blocking the main control loop
+- Automatically disables MQTT after consecutive failures
+- Periodically attempts to recover the MQTT connection
+- Ensures critical status messages attempt delivery regardless of circuit state
+
+### 2. Non-blocking Background Operations
+
+For operations that could potentially block or delay the main control loop:
+
+```mermaid
+flowchart LR
+    A[Main Control Loop] --> B[Initiate Operation]
+    B --> C[Continue Main Loop]
+    B -.-> D[Background Process]
+    D -.-> E[Complete Operation]
+```
+
+This pattern:
+- Maintains responsiveness of the main control loop
+- Prevents external service issues from affecting core functionality
+- Allows long-running operations to complete independently

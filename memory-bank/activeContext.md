@@ -50,6 +50,7 @@ The current focus is on:
 
 3. **Minor Feature Improvements**
    - ✅ Add MQTT-based remote monitoring for metrics and status
+   - ✅ Improve MQTT resilience with timeout and non-blocking operation
    - Add support for email notifications on critical events
    - Improve log rotation and management
 
@@ -115,6 +116,7 @@ The current focus is on:
    - **Question**: How to improve recovery from temporary sensor or IPMI failures?
    - **Current Approach**: Fail to Dell default control on critical errors
    - **Potential Solution**: Implement more nuanced recovery strategies with retry logic
+   - **Progress**: Implemented for MQTT with timeout and circuit breaker pattern
 
 ### User Feedback Themes
 
