@@ -100,12 +100,12 @@ pie title Implementation Progress
 
 ## What's Left to Build
 
-### Short-term Improvements: 0%
+### Short-term Improvements: 25%
 
+- ✅ MQTT-based remote monitoring for metrics and status
 - ⏳ Email notifications for critical events
 - ⏳ Improved log management
 - ⏳ Fan testing/identification mode
-- ⏳ More detailed status reporting
 
 ### Medium-term Features: 0%
 

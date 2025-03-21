@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/lib/logging.sh"
 source "$SCRIPT_DIR/lib/ipmi_control.sh"
 source "$SCRIPT_DIR/lib/temperature.sh"
 source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/mqtt.sh"
 
 # Source configuration file (looking in the same directory as the script)
 CONFIG_FILE="$SCRIPT_DIR/config.env"
@@ -172,6 +173,9 @@ GPU_ALL_T=$(get_all_gpu_temps)
 
 # Log initial system status
 log_system_status "$CPU_ALL_T" "$GPU_ALL_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
+
+# Publish initial status to MQTT
+mqtt_publish_status "starting" "Dell IPMI fan control service starting"
 else
    error_log "Invalid temperature readings - CPU: ${CPU_T}°C, GPU: ${GPU_T}°C. Enabling stock Dell fan control."
    
@@ -190,6 +194,7 @@ GPU_T_OLD=0
 BASE_FAN_PERCENT=$FAN_MIN
 GPU_EXTRA_PERCENT=0
 FAILSAFE_ACTIVE=0
+SYSTEM_STATUS="normal"
 
 # Function to calculate fan speed based on temperature
 calculate_fan_speed() {
@@ -315,6 +320,18 @@ while true; do
       
       # Log current system status in every loop
       log_system_status "$CPU_ALL_T" "$GPU_ALL_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT"
+      
+      # Determine system status
+      if [ $FAILSAFE_ACTIVE -eq 1 ]; then
+         SYSTEM_STATUS="critical"
+      elif [ "$CPU_T" -ge $((CPU_MAX_TEMP - 5)) ] || [ "$GPU_T" -ge $((GPU_MAX_TEMP - 5)) ]; then
+         SYSTEM_STATUS="escalating"
+      else
+         SYSTEM_STATUS="normal"
+      fi
+      
+      # Publish metrics to MQTT
+      mqtt_publish_metrics "$CPU_ALL_T" "$GPU_ALL_T" "$BASE_FAN_PERCENT" "$GPU_FANS" "$GPU_EXTRA_PERCENT" "$SYSTEM_STATUS"
       
       # Calculate temperature changes for hysteresis
       CPU_CHANGE_COOLING=$((CPU_T_OLD-CPU_T))

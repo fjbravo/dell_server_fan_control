@@ -29,6 +29,12 @@
    - Used to run the fan control script as a system service
    - Provides automatic startup, shutdown, and restart capabilities
 
+6. **MQTT (Message Queuing Telemetry Transport)**
+   - Lightweight publish/subscribe messaging protocol
+   - Used for remote monitoring of system metrics and status
+   - Implemented via mosquitto-clients package
+   - Enables integration with various monitoring dashboards and tools
+
 ### Supporting Technologies
 
 1. **Shell Utilities**

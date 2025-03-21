@@ -21,6 +21,14 @@ flowchart TD
     K --> B
     L[Configuration Reload] -.-> A
     M[Shutdown Hook] -.-> N[Restore Dell Fan Control]
+    
+    %% MQTT Monitoring Extension
+    F --> O[System Status Determination]
+    O --> P[MQTT Publishing]
+    H --> P
+    I --> P
+    P --> Q[MQTT Broker]
+    Q --> R[Remote Monitoring Clients]
 ```
 
 ## Core Design Patterns

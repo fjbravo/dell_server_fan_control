@@ -49,9 +49,9 @@ The current focus is on:
    - Provide guidance on optimal settings for different use cases
 
 3. **Minor Feature Improvements**
+   - ✅ Add MQTT-based remote monitoring for metrics and status
    - Add support for email notifications on critical events
    - Improve log rotation and management
-   - Add more detailed status reporting
 
 ### Medium-term Goals
 1. **Enhanced Monitoring**

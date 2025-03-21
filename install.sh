@@ -53,6 +53,14 @@ check_dependencies() {
         echo "- ipmitool is installed"
     fi
     
+    # Check for mosquitto-clients (for MQTT support)
+    if ! dpkg -l | grep -q "^ii.*mosquitto-clients"; then
+        echo "- mosquitto-clients not found"
+        missing_deps+=("mosquitto-clients")
+    else
+        echo "- mosquitto-clients is installed"
+    fi
+    
     # Install missing dependencies if any
     if [ ${#missing_deps[@]} -ne 0 ]; then
         echo "Installing missing dependencies: ${missing_deps[*]}"
@@ -106,7 +114,7 @@ download_files() {
 
     # Download lib directory files
     mkdir -p "$TEMP_DIR/lib"
-    for file in logging.sh ipmi_control.sh temperature.sh config.sh; do
+    for file in logging.sh ipmi_control.sh temperature.sh config.sh mqtt.sh; do
         echo "- Downloading lib/$file..."
         if ! curl -L -o "lib/$file" "$REPO_URL/lib/$file"; then
             echo "Error: Failed to download lib/$file"
@@ -269,6 +277,11 @@ echo "   - GPU monitoring settings:"
 echo "     * Enable/disable: GPU_MONITORING=y/n"
 echo "     * Temperature thresholds: GPU_MIN_TEMP, GPU_MAX_TEMP, GPU_FAIL_THRESHOLD"
 echo "     * Fan IDs: GPU_FAN_IDS (comma-separated list, default: 5,6)"
+echo "   - MQTT settings:"
+echo "     * MQTT_BROKER: Hostname or IP of MQTT broker (leave empty to disable)"
+echo "     * MQTT_PORT: Port of MQTT broker (default: 1883, TLS: 8883)"
+echo "     * MQTT_USER/MQTT_PASS: Optional authentication credentials"
+echo "     * MQTT_TLS: Enable TLS encryption (y/n)"
 echo
 echo "5. Service control:"
 echo "   sudo systemctl stop ${SERVICE_NAME}     # Stop the service"

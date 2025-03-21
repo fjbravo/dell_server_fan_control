@@ -55,6 +55,7 @@ This file captures important patterns, preferences, and project intelligence tha
    - All fans get a base speed determined by CPU temperature
    - GPU-designated fans get additional speed when GPU requires more cooling
    - Fan speeds only change when temperature changes exceed hysteresis thresholds
+   - System status (normal/escalating/critical) is determined based on temperatures and failsafe state
 
 4. **Configuration Validation**
    - All numeric values must be within reasonable ranges
@@ -102,6 +103,7 @@ This file captures important patterns, preferences, and project intelligence tha
    - Added emergency shutdown for critical temperatures
 
 4. **Future Direction**
+   - Implemented MQTT-based remote monitoring for metrics and status
    - Moving toward more sophisticated monitoring and control
    - Considering web-based interface for easier configuration
    - Exploring more advanced fan curve options
@@ -122,6 +124,8 @@ This file captures important patterns, preferences, and project intelligence tha
    - `ipmitool sensor list | grep Fan` to check current fan speeds
    - `sensors` to check current CPU temperatures
    - `nvidia-smi` to check current GPU temperatures
+   - MQTT clients can subscribe to `servers/hostname/metrics` for real-time metrics
+   - MQTT clients can subscribe to `servers/hostname/status` for status updates
 
 4. **Troubleshooting**
    - Check iDRAC connectivity: `ipmitool -I lanplus -H <IP> -U <USER> -P <PASS> chassis power status`
