@@ -116,10 +116,27 @@ DEBUG="n"                  # Enable verbose logging (y/n)
 DRY_RUN="n"                # Enable dry-run mode (y/n) - logs fan changes without executing them
 ```
 
+### MQTT Settings
+```bash
+# MQTT Settings
+MQTT_BROKER=""               # MQTT broker hostname or IP address (empty to disable)
+MQTT_PORT="1883"             # MQTT broker port (default: 1883, TLS: 8883)
+MQTT_USER=""                 # MQTT username (optional)
+MQTT_PASS=""                 # MQTT password (optional)
+MQTT_TLS="n"                 # Enable TLS encryption (y/n)
+MQTT_CA_CERT=""              # Path to CA certificate file (for TLS)
+MQTT_CLIENT_CERT=""          # Path to client certificate file (for TLS)
+MQTT_CLIENT_KEY=""           # Path to client key file (for TLS)
+MQTT_TIMEOUT="3"             # Timeout in seconds for MQTT connections
+MQTT_MAX_FAILURES="3"        # Max consecutive failures before disabling MQTT
+```
+
 ### Version History
 
-#### v1.2.0 (2025-03-08)
+#### v1.2.0 (2025-03-21)
 - Added dry-run mode for testing configuration without affecting hardware
+- Added MQTT integration for remote monitoring
+- Implemented circuit breaker pattern for MQTT resilience
 - Improved error handling and logging
 - Enhanced configuration validation
 
@@ -241,6 +258,40 @@ Example log entries in dry-run mode:
 12:35:06 🔍 DRY-RUN: Would set fans 5,6 speed to 45%
 ```
 
+### MQTT Monitoring
+
+The system supports publishing temperature and fan speed data to an MQTT broker for remote monitoring. This allows you to:
+
+- Monitor server temperatures and fan speeds remotely
+- Integrate with home automation systems
+- Create custom dashboards
+- Set up alerts for temperature thresholds
+
+#### MQTT Features
+
+- **Resilient Design**: Uses circuit breaker pattern to prevent MQTT issues from affecting fan control
+- **Non-blocking Operation**: MQTT publishing runs in the background to maintain responsiveness
+- **Automatic Recovery**: Periodically attempts to reconnect after failures
+- **Flexible Configuration**: Supports various authentication and encryption options
+
+#### Message Types
+
+1. **Metrics**: Regular updates with temperature and fan data
+   - Published to: `servers/{hostname}/metrics`
+   - Contains CPU temperatures, GPU temperatures, fan speeds, and system status
+
+2. **Status**: Important state changes and events
+   - Published to: `servers/{hostname}/status`
+   - Contains status messages like startup, shutdown, and warnings
+
+#### Setting Up MQTT
+
+For detailed instructions on setting up MQTT monitoring, see the following documentation:
+
+- [MQTT Deployment Guide](docs/MQTT-DEPLOYMENT.md): Instructions for setting up with Docker or existing MQTT servers
+- [MQTT Architecture](docs/MQTT-ARCHITECTURE.md): Visual overview of the MQTT integration
+- [MQTT Troubleshooting](docs/MQTT-TROUBLESHOOTING.md): Solutions for common MQTT issues
+
 ### Troubleshooting
 
 #### GPU Monitoring Issues
@@ -276,3 +327,19 @@ Example log entries in dry-run mode:
    - Check iDRAC credentials in config.env
    - Ensure IPMI over LAN is enabled
    - Test manual fan control: `ipmitool raw 0x30 0x30 0x01 0x00`
+
+#### MQTT Issues
+1. MQTT publishing not working:
+   - Verify MQTT_BROKER is set correctly in config.env
+   - Check that mosquitto-clients package is installed
+   - Test broker connectivity: `mosquitto_pub -h your-broker -t test -m "test"`
+   - Check logs for MQTT-related errors
+
+2. MQTT publishing disabled due to failures:
+   - Look for "MQTT publishing disabled after X consecutive failures" in logs
+   - Fix the underlying connection issue (network, broker, authentication)
+   - Restart the service to reset the circuit breaker: `sudo systemctl restart dell_ipmi_fan_control`
+   - Or wait for automatic recovery attempt (occurs periodically)
+
+3. For detailed MQTT troubleshooting:
+   - See the [MQTT Troubleshooting Guide](docs/MQTT-TROUBLESHOOTING.md)
